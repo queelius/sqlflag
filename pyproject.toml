@@ -4,6 +4,21 @@ version = "0.1.0"
 description = "Auto-generate CLIs from SQLite databases. Tables become subcommands, columns become filter flags."
 requires-python = ">=3.10"
 license = "MIT"
+authors = [
+    { name = "Alexander Towell", email = "lex@metafunctor.com" },
+]
+keywords = ["sqlite", "cli", "database", "query", "flags"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Database",
+]
+
+[project.urls]
+Homepage = "https://github.com/queelius/sqlflag"
+Repository = "https://github.com/queelius/sqlflag"
 dependencies = [
     "sqlite-utils>=3.35",
     "typer>=0.9",
