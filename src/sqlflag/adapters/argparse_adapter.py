@@ -20,15 +20,23 @@ class ArgparseAdapter(Adapter):
         query_name: str = "query",
     ) -> argparse.ArgumentParser:
         root = sqlflag.click_app
-        subparsers = self._find_or_create_subparsers(app)
 
-        for name in (query_name, "sql", "schema"):
-            src_name = "query" if name == query_name else name
-            cmd = root.commands.get(src_name)
+        # Build the combined Click group (tables + sql + schema)
+        combined = click.Group(name=query_name, help="Query database tables.")
+        query_group = root.commands.get("query")
+        if query_group:
+            for name, cmd in query_group.commands.items():
+                combined.add_command(cmd, name=name)
+        for cmd_name in ("sql", "schema"):
+            cmd = root.commands.get(cmd_name)
             if cmd:
-                sub = subparsers.add_parser(name, help=cmd.help, add_help=False)
-                sub.add_argument("_sqlflag_args", nargs=argparse.REMAINDER)
-                sub.set_defaults(_sqlflag_cmd=cmd)
+                combined.add_command(cmd, name=cmd_name)
+
+        # Add a single argparse subparser that delegates to the combined group
+        subparsers = self._find_or_create_subparsers(app)
+        sub = subparsers.add_parser(query_name, help="Query database tables.", add_help=False)
+        sub.add_argument("_sqlflag_args", nargs=argparse.REMAINDER)
+        sub.set_defaults(_sqlflag_cmd=combined)
 
         return app
 
@@ -46,20 +54,24 @@ def mount(
     sqlflag: SqlFlag,
     query_name: str = "query",
 ) -> argparse.ArgumentParser:
-    """Mount sqlflag commands into an argparse ArgumentParser.
+    """Mount all sqlflag commands as a single argparse subparser.
 
-    After parsing, call invoke() with the parsed namespace
-    to dispatch sqlflag commands.
+    The subparser delegates to a Click group containing table commands,
+    sql, and schema. After parsing, call invoke() to dispatch.
 
     Usage:
         from sqlflag.adapters.argparse_adapter import mount, invoke
 
         parser = argparse.ArgumentParser()
-        mount(parser, SqlFlag("db.sqlite"))
+        mount(parser, SqlFlag("db.sqlite"), query_name="browse")
         args = parser.parse_args()
         if not invoke(args):
-            # not a sqlflag command, handle normally
+            # not a sqlflag command
             ...
+
+        # CLI: myapp browse repos --language Python
+        # CLI: myapp browse schema repos
+        # CLI: myapp browse sql "SELECT ..."
     """
     return ArgparseAdapter().mount(app, sqlflag, query_name)
 
