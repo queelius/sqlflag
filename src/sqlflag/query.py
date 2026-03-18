@@ -115,7 +115,9 @@ class QueryEngine:
         parts = []
         for spec in order:
             if spec.startswith("-"):
-                parts.append(f"[{spec[1:]}] DESC")
+                col = spec[1:].replace("-", "_")
+                parts.append(f"[{col}] DESC")
             else:
-                parts.append(f"[{spec}]")
+                col = spec.replace("-", "_")
+                parts.append(f"[{col}]")
         return ", ".join(parts)
