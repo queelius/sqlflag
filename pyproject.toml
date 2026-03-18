@@ -15,10 +15,6 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Topic :: Database",
 ]
-
-[project.urls]
-Homepage = "https://github.com/queelius/sqlflag"
-Repository = "https://github.com/queelius/sqlflag"
 dependencies = [
     "sqlite-utils>=3.35",
     "typer>=0.9",
@@ -30,6 +26,10 @@ dev = [
     "pytest>=7",
     "pytest-cov",
 ]
+
+[project.urls]
+Homepage = "https://github.com/queelius/sqlflag"
+Repository = "https://github.com/queelius/sqlflag"
 
 [build-system]
 requires = ["hatchling"]
