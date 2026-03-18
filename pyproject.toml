@@ -1,0 +1,27 @@
+[project]
+name = "sqlflag"
+version = "0.1.0"
+description = "Auto-generate CLIs from SQLite databases. Tables become subcommands, columns become filter flags."
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = [
+    "sqlite-utils>=3.35",
+    "typer>=0.9",
+    "rich>=13",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+    "pytest-cov",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sqlflag"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
