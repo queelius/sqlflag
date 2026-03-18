@@ -175,20 +175,20 @@ class SqlFlag:
         fts = self._schema.has_fts(table_name)
         console.print(f"FTS index: {'yes' if fts else 'no'}")
 
-    def mount(self, typer_app, query_name: str = "query") -> click.Group:
-        """Mount sqlflag commands into an existing Typer app.
+    def mount(self, app, query_name: str = "query"):
+        """Mount sqlflag commands into an existing CLI app.
 
-        Returns the assembled Click group (since typer.main.get_group()
-        creates a new object each call, the caller should use the
-        returned group for invocation).
+        Convenience method that auto-detects the framework. For explicit
+        control, use the adapter modules in sqlflag.adapters instead.
         """
-        import typer as _typer
-        click_group = _typer.main.get_group(typer_app)
-        query_group = self._click_app.commands.get("query")
-        if query_group:
-            click_group.add_command(query_group, name=query_name)
-        for cmd_name in ("sql", "schema"):
-            cmd = self._click_app.commands.get(cmd_name)
-            if cmd:
-                click_group.add_command(cmd, name=cmd_name)
-        return click_group
+        import argparse
+
+        if isinstance(app, argparse.ArgumentParser):
+            from sqlflag.adapters.argparse_adapter import mount
+            return mount(app, self, query_name)
+        elif isinstance(app, click.Group):
+            from sqlflag.adapters.click_adapter import mount
+            return mount(app, self, query_name)
+        else:
+            from sqlflag.adapters.typer_adapter import mount
+            return mount(app, self, query_name)

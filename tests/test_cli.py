@@ -168,36 +168,139 @@ class TestSchemaCommand:
         assert "yes" in result.output.lower()
 
 
-class TestMount:
+class TestClickAdapter:
+    def test_mount_into_click_group(self, sample_db):
+        import click
+        from sqlflag.adapters.click_adapter import mount
+
+        main = click.Group()
+
+        @main.command()
+        def hello():
+            click.echo("hello")
+
+        mount(main, SqlFlag(sample_db))
+        runner = CliRunner()
+
+        result = runner.invoke(main, ["query", "repos", "--format", "json"])
+        assert result.exit_code == 0
+
+        result = runner.invoke(main, ["sql", "SELECT count(*) as n FROM repos", "--format", "json"])
+        assert result.exit_code == 0
+
+        result = runner.invoke(main, ["hello"])
+        assert result.exit_code == 0
+
+    def test_custom_query_name(self, sample_db):
+        import click
+        from sqlflag.adapters.click_adapter import mount
+
+        main = click.Group()
+        mount(main, SqlFlag(sample_db), query_name="db")
+        runner = CliRunner()
+        result = runner.invoke(main, ["db", "repos", "--format", "json"])
+        assert result.exit_code == 0
+
+
+class TestTyperAdapter:
     def test_mount_into_typer(self, sample_db):
         import typer
+        from sqlflag.adapters.typer_adapter import mount
+
         main = typer.Typer()
 
         @main.command()
         def hello():
             print("hello")
 
-        click_app = SqlFlag(sample_db).mount(main)
+        click_app = mount(main, SqlFlag(sample_db))
         runner = CliRunner()
 
         result = runner.invoke(click_app, ["query", "repos", "--format", "json"])
         assert result.exit_code == 0
 
-        result = runner.invoke(click_app, [
-            "sql", "SELECT count(*) as n FROM repos", "--format", "json",
-        ])
+        result = runner.invoke(click_app, ["sql", "SELECT count(*) as n FROM repos", "--format", "json"])
         assert result.exit_code == 0
 
         result = runner.invoke(click_app, ["hello"])
         assert result.exit_code == 0
 
-    def test_mount_custom_query_name(self, sample_db):
+    def test_custom_query_name(self, sample_db):
         import typer
+        from sqlflag.adapters.typer_adapter import mount
+
         main = typer.Typer()
-        click_app = SqlFlag(sample_db).mount(main, query_name="db")
+        click_app = mount(main, SqlFlag(sample_db), query_name="db")
         runner = CliRunner()
         result = runner.invoke(click_app, ["db", "repos", "--format", "json"])
         assert result.exit_code == 0
+
+
+class TestArgparseAdapter:
+    def test_mount_and_invoke_query(self, sample_db):
+        import argparse
+        from io import StringIO
+        from sqlflag.adapters.argparse_adapter import mount, invoke
+
+        parser = argparse.ArgumentParser()
+        mount(parser, SqlFlag(sample_db))
+
+        args = parser.parse_args(["query", "repos", "--format", "json"])
+        assert hasattr(args, "_sqlflag_cmd")
+
+    def test_mount_and_invoke_sql(self, sample_db):
+        import argparse
+        from sqlflag.adapters.argparse_adapter import mount, invoke
+
+        parser = argparse.ArgumentParser()
+        mount(parser, SqlFlag(sample_db))
+
+        args = parser.parse_args(["sql", "SELECT count(*) as n FROM repos", "--format", "json"])
+        assert hasattr(args, "_sqlflag_cmd")
+
+    def test_mount_and_invoke_schema(self, sample_db):
+        import argparse
+        from sqlflag.adapters.argparse_adapter import mount, invoke
+
+        parser = argparse.ArgumentParser()
+        mount(parser, SqlFlag(sample_db))
+
+        args = parser.parse_args(["schema"])
+        assert hasattr(args, "_sqlflag_cmd")
+
+    def test_invoke_returns_false_for_non_sqlflag(self, sample_db):
+        import argparse
+        from sqlflag.adapters.argparse_adapter import invoke
+
+        ns = argparse.Namespace(command="other")
+        assert invoke(ns) is False
+
+
+class TestConvenienceMount:
+    """Test the SqlFlag.mount() convenience method that auto-detects framework."""
+
+    def test_mount_click(self, sample_db):
+        import click
+        main = click.Group()
+        SqlFlag(sample_db).mount(main)
+        runner = CliRunner()
+        result = runner.invoke(main, ["query", "repos", "--format", "json"])
+        assert result.exit_code == 0
+
+    def test_mount_typer(self, sample_db):
+        import typer
+        main = typer.Typer()
+        click_app = SqlFlag(sample_db).mount(main)
+        runner = CliRunner()
+        result = runner.invoke(click_app, ["query", "repos", "--format", "json"])
+        assert result.exit_code == 0
+
+    def test_mount_argparse(self, sample_db):
+        import argparse
+        parser = argparse.ArgumentParser()
+        SqlFlag(sample_db).mount(parser)
+        args = parser.parse_args(["query", "repos", "--format", "json"])
+        assert hasattr(args, "_sqlflag_cmd")
 
 
 class TestSearchCommand:
