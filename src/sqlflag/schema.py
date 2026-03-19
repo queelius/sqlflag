@@ -1,5 +1,7 @@
 """Schema introspection and type categorization."""
 
+import warnings
+
 from sqlite_utils import Database
 
 RESERVED_FLAGS = frozenset({
@@ -52,7 +54,10 @@ class SchemaInfo:
     def queryable_names(self) -> list[str]:
         all_names = self.table_names() + self.view_names()
         fts_suffixes = ("_fts", "_fts_data", "_fts_idx", "_fts_content", "_fts_docsize", "_fts_config")
-        all_names = [n for n in all_names if not any(n.endswith(s) for s in fts_suffixes)]
+        all_names = [
+            n for n in all_names
+            if not any(n.endswith(s) for s in fts_suffixes)
+        ]
         if self._tables_allowlist is not None:
             return [n for n in self._tables_allowlist if n in all_names]
         return all_names
@@ -61,12 +66,18 @@ class SchemaInfo:
         return self._db[table].columns
 
     def flaggable_columns(self, table: str):
-        return [
-            c for c in self.columns(table)
-            if c.name.lower() not in RESERVED_FLAGS
-            and c.name.isidentifier()
-            and not c.name.startswith("_")
-        ]
+        result = []
+        for c in self.columns(table):
+            if c.name.lower() in RESERVED_FLAGS:
+                warnings.warn(
+                    f"Column '{c.name}' in table '{table}' skipped: "
+                    f"conflicts with reserved flag '--{c.name.lower()}'",
+                    stacklevel=2,
+                )
+                continue
+            if c.name.isidentifier() and not c.name.startswith("_"):
+                result.append(c)
+        return result
 
     def type_category(self, table: str, column: str) -> str:
         for col in self.columns(table):

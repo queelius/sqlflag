@@ -3,6 +3,7 @@
 import click
 from sqlflag.query import QueryEngine
 from sqlflag.schema import SchemaInfo, RESERVED_FLAGS
+from sqlflag.formats import available_formats
 from sqlflag.formatter import format_rows, detect_format
 
 
@@ -26,12 +27,12 @@ class SqlFlag:
     def _build(self) -> click.Group:
         root = click.Group()
 
-        # query group
-        query_group = click.Group(name="query", help="Query database tables.")
+        # table group
+        table_group = click.Group(name="table", help="Query database tables.")
         for table_name in self._schema.queryable_names():
             cmd = self._make_table_command(table_name)
-            query_group.add_command(cmd, name=table_name)
-        root.add_command(query_group)
+            table_group.add_command(cmd, name=table_name)
+        root.add_command(table_group)
 
         # sql command
         engine = self._engine
@@ -39,7 +40,7 @@ class SqlFlag:
         @click.command(name="sql")
         @click.argument("query")
         @click.option("--format", "fmt", default=None,
-                       type=click.Choice(["table", "json", "csv"]))
+                       type=click.Choice(available_formats()))
         def sql_cmd(query, fmt):
             """Execute raw SQL (read-only)."""
             fmt = fmt or detect_format()
@@ -78,7 +79,7 @@ class SqlFlag:
             click.Option(["--columns"], default=None,
                           help="Comma-separated columns to display."),
             click.Option(["--format"], default=None,
-                          type=click.Choice(["table", "json", "csv"]),
+                          type=click.Choice(available_formats()),
                           help="Output format."),
         ]
 

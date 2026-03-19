@@ -18,19 +18,8 @@ class TyperAdapter(Adapter):
         click_group = typer.main.get_group(app)
         root = sqlflag.click_app
         group = click.Group(name=query_name, help="Query database tables.")
-
-        # Flatten table commands from the query subgroup
-        query_group = root.commands.get("query")
-        if query_group:
-            for name, cmd in query_group.commands.items():
-                group.add_command(cmd, name=name)
-
-        # Add sql and schema alongside table commands
-        for cmd_name in ("sql", "schema"):
-            cmd = root.commands.get(cmd_name)
-            if cmd:
-                group.add_command(cmd, name=cmd_name)
-
+        for name, cmd in root.commands.items():
+            group.add_command(cmd, name=name)
         click_group.add_command(group)
         return click_group
 

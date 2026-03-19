@@ -15,19 +15,8 @@ class ClickAdapter(Adapter):
     def mount(self, app: click.Group, sqlflag: SqlFlag, query_name: str = "query") -> click.Group:
         root = sqlflag.click_app
         group = click.Group(name=query_name, help="Query database tables.")
-
-        # Flatten table commands from the query subgroup
-        query_group = root.commands.get("query")
-        if query_group:
-            for name, cmd in query_group.commands.items():
-                group.add_command(cmd, name=name)
-
-        # Add sql and schema alongside table commands
-        for cmd_name in ("sql", "schema"):
-            cmd = root.commands.get(cmd_name)
-            if cmd:
-                group.add_command(cmd, name=cmd_name)
-
+        for name, cmd in root.commands.items():
+            group.add_command(cmd, name=name)
         app.add_command(group)
         return app
 
@@ -41,7 +30,7 @@ def mount(app: click.Group, sqlflag: SqlFlag, query_name: str = "query") -> clic
     Usage:
         from sqlflag.adapters.click_adapter import mount
         mount(my_click_group, SqlFlag("db.sqlite"), query_name="browse")
-        # my_click_group browse repos --language Python
+        # my_click_group browse table repos --language Python
         # my_click_group browse schema repos
         # my_click_group browse sql "SELECT ..."
     """

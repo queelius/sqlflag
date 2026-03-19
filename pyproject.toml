@@ -1,6 +1,6 @@
 [project]
 name = "sqlflag"
-version = "0.2.0"
+version = "0.3.0"
 description = "Auto-generate CLIs from SQLite databases. Tables become subcommands, columns become filter flags."
 requires-python = ">=3.10"
 license = "MIT"

@@ -21,16 +21,10 @@ class ArgparseAdapter(Adapter):
     ) -> argparse.ArgumentParser:
         root = sqlflag.click_app
 
-        # Build the combined Click group (tables + sql + schema)
+        # Transfer all root commands (table group, sql, schema)
         combined = click.Group(name=query_name, help="Query database tables.")
-        query_group = root.commands.get("query")
-        if query_group:
-            for name, cmd in query_group.commands.items():
-                combined.add_command(cmd, name=name)
-        for cmd_name in ("sql", "schema"):
-            cmd = root.commands.get(cmd_name)
-            if cmd:
-                combined.add_command(cmd, name=cmd_name)
+        for name, cmd in root.commands.items():
+            combined.add_command(cmd, name=name)
 
         # Add a single argparse subparser that delegates to the combined group
         subparsers = self._find_or_create_subparsers(app)

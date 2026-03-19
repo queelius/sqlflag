@@ -1,3 +1,7 @@
+import warnings
+
+import pytest
+
 from sqlflag.schema import SchemaInfo
 
 
@@ -83,3 +87,28 @@ class TestSchemaInfo:
         names = info.queryable_names()
         assert "repos" in names
         assert "repos_fts" not in names
+
+    def test_tables_named_sql_and_schema_allowed(self, sample_db):
+        """Tables named 'sql' or 'schema' are allowed now that tables are namespaced."""
+        from sqlite_utils import Database
+        db = Database(sample_db)
+        db.execute("CREATE TABLE [schema] (id INTEGER, data TEXT)")
+        db.execute("CREATE TABLE [sql] (id INTEGER, query TEXT)")
+
+        info = SchemaInfo(sample_db)
+        names = info.queryable_names()
+        assert "schema" in names
+        assert "sql" in names
+
+    def test_reserved_columns_emit_warning(self, sample_db):
+        """Reserved column names emit warnings when skipped."""
+        info = SchemaInfo(sample_db)
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            flaggable = info.flaggable_columns("edge_cases")
+
+        col_names = [c.name for c in flaggable]
+        assert "format" not in col_names
+        assert "name" in col_names
+        msgs = [str(x.message) for x in w]
+        assert any("format" in m and "conflicts" in m for m in msgs)

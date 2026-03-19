@@ -27,6 +27,8 @@ sqlflag auto-generates CLIs from SQLite databases. The schema drives everything:
 
 **Two tiers:** Column flags handle single-table AND/OR filtering. Raw SQL (`sql` command) handles JOINs, aggregations, and complex boolean logic.
 
+**Command structure:** Tables are namespaced under a `table` subgroup to avoid collisions with built-in commands (`sql`, `schema`). When mounted via an adapter (e.g., `query_name="db"`), the path is `db table repos --stars gt:5`. Direct `click_app` usage: `table repos --stars gt:5`.
+
 **Dependency flow:**
 ```
 SqlFlag (cli.py) -- builds Click commands from schema

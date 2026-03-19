@@ -7,7 +7,7 @@ class TestQueryCommands:
     def test_query_all_rows(self, sample_db):
         app = SqlFlag(sample_db)
         runner = CliRunner()
-        result = runner.invoke(app.click_app, ["query", "repos", "--format", "json"])
+        result = runner.invoke(app.click_app, ["table", "repos", "--format", "json"])
         assert result.exit_code == 0, result.output
         lines = result.output.strip().split("\n")
         assert len(lines) == 4
@@ -16,7 +16,7 @@ class TestQueryCommands:
         app = SqlFlag(sample_db)
         runner = CliRunner()
         result = runner.invoke(app.click_app, [
-            "query", "repos", "--language", "python", "--format", "json",
+            "table", "repos", "--language", "python", "--format", "json",
         ])
         assert result.exit_code == 0, result.output
         rows = [json.loads(line) for line in result.output.strip().split("\n")]
@@ -27,7 +27,7 @@ class TestQueryCommands:
         app = SqlFlag(sample_db)
         runner = CliRunner()
         result = runner.invoke(app.click_app, [
-            "query", "repos", "--stars", "gt:75", "--format", "json",
+            "table", "repos", "--stars", "gt:75", "--format", "json",
         ])
         assert result.exit_code == 0, result.output
         rows = [json.loads(line) for line in result.output.strip().split("\n")]
@@ -37,7 +37,7 @@ class TestQueryCommands:
         app = SqlFlag(sample_db)
         runner = CliRunner()
         result = runner.invoke(app.click_app, [
-            "query", "repos",
+            "table", "repos",
             "--language", "python", "--language", "go",
             "--format", "json",
         ])
@@ -49,7 +49,7 @@ class TestQueryCommands:
         app = SqlFlag(sample_db)
         runner = CliRunner()
         result = runner.invoke(app.click_app, [
-            "query", "repos", "--order", "-stars", "--format", "json",
+            "table", "repos", "--order", "-stars", "--format", "json",
         ])
         assert result.exit_code == 0, result.output
         rows = [json.loads(line) for line in result.output.strip().split("\n")]
@@ -59,7 +59,7 @@ class TestQueryCommands:
         app = SqlFlag(sample_db)
         runner = CliRunner()
         result = runner.invoke(app.click_app, [
-            "query", "repos", "--limit", "2", "--format", "json",
+            "table", "repos", "--limit", "2", "--format", "json",
         ])
         assert result.exit_code == 0, result.output
         lines = result.output.strip().split("\n")
@@ -69,7 +69,7 @@ class TestQueryCommands:
         app = SqlFlag(sample_db)
         runner = CliRunner()
         result = runner.invoke(app.click_app, [
-            "query", "repos", "--columns", "name,stars", "--format", "json",
+            "table", "repos", "--columns", "name,stars", "--format", "json",
         ])
         assert result.exit_code == 0, result.output
         row = json.loads(result.output.strip().split("\n")[0])
@@ -79,7 +79,7 @@ class TestQueryCommands:
         app = SqlFlag(sample_db)
         runner = CliRunner()
         result = runner.invoke(app.click_app, [
-            "query", "repos",
+            "table", "repos",
             "--language", "go", "--stars", "gt:150",
             "--any", "--format", "json",
         ])
@@ -91,7 +91,7 @@ class TestQueryCommands:
         app = SqlFlag(sample_db)
         runner = CliRunner()
         result = runner.invoke(app.click_app, [
-            "query", "active_repos", "--format", "json",
+            "table", "active_repos", "--format", "json",
         ])
         assert result.exit_code == 0, result.output
         rows = [json.loads(line) for line in result.output.strip().split("\n")]
@@ -101,7 +101,7 @@ class TestQueryCommands:
         app = SqlFlag(sample_db)
         runner = CliRunner()
         result = runner.invoke(app.click_app, [
-            "query", "repos", "--name", "contains:lph", "--format", "json",
+            "table", "repos", "--name", "contains:lph", "--format", "json",
         ])
         assert result.exit_code == 0, result.output
         rows = [json.loads(line) for line in result.output.strip().split("\n")]
@@ -112,7 +112,7 @@ class TestQueryCommands:
         app = SqlFlag(sample_db)
         runner = CliRunner()
         result = runner.invoke(app.click_app, [
-            "query", "repos", "--created-at", "since:2025-01-01", "--format", "json",
+            "table", "repos", "--created-at", "since:2025-01-01", "--format", "json",
         ])
         assert result.exit_code == 0, result.output
         rows = [json.loads(line) for line in result.output.strip().split("\n")]
@@ -123,9 +123,9 @@ class TestTableAllowlist:
     def test_only_allowed_tables(self, sample_db):
         app = SqlFlag(sample_db, tables=["repos"])
         runner = CliRunner()
-        result = runner.invoke(app.click_app, ["query", "repos", "--format", "json"])
+        result = runner.invoke(app.click_app, ["table", "repos", "--format", "json"])
         assert result.exit_code == 0
-        result = runner.invoke(app.click_app, ["query", "events", "--format", "json"])
+        result = runner.invoke(app.click_app, ["table", "events", "--format", "json"])
         assert result.exit_code != 0
 
 
@@ -182,11 +182,11 @@ class TestClickAdapter:
         mount(main, SqlFlag(sample_db))
         runner = CliRunner()
 
-        # Table commands under "query" group
-        result = runner.invoke(main, ["query", "repos", "--format", "json"])
+        # Table commands under "query table" path
+        result = runner.invoke(main, ["query", "table", "repos", "--format", "json"])
         assert result.exit_code == 0
 
-        # sql and schema also under "query" group
+        # sql and schema under "query" group
         result = runner.invoke(main, ["query", "sql", "SELECT count(*) as n FROM repos", "--format", "json"])
         assert result.exit_code == 0
 
@@ -204,7 +204,7 @@ class TestClickAdapter:
         main = click.Group()
         mount(main, SqlFlag(sample_db), query_name="browse")
         runner = CliRunner()
-        result = runner.invoke(main, ["browse", "repos", "--format", "json"])
+        result = runner.invoke(main, ["browse", "table", "repos", "--format", "json"])
         assert result.exit_code == 0
         result = runner.invoke(main, ["browse", "schema"])
         assert result.exit_code == 0
@@ -224,7 +224,7 @@ class TestTyperAdapter:
         click_app = mount(main, SqlFlag(sample_db))
         runner = CliRunner()
 
-        result = runner.invoke(click_app, ["query", "repos", "--format", "json"])
+        result = runner.invoke(click_app, ["query", "table", "repos", "--format", "json"])
         assert result.exit_code == 0
 
         result = runner.invoke(click_app, ["query", "sql", "SELECT count(*) as n FROM repos", "--format", "json"])
@@ -240,7 +240,7 @@ class TestTyperAdapter:
         main = typer.Typer()
         click_app = mount(main, SqlFlag(sample_db), query_name="db")
         runner = CliRunner()
-        result = runner.invoke(click_app, ["db", "repos", "--format", "json"])
+        result = runner.invoke(click_app, ["db", "table", "repos", "--format", "json"])
         assert result.exit_code == 0
 
 
@@ -252,8 +252,8 @@ class TestArgparseAdapter:
         parser = argparse.ArgumentParser()
         mount(parser, SqlFlag(sample_db))
 
-        # All sqlflag commands go under the single "query" subparser
-        args = parser.parse_args(["query", "repos", "--format", "json"])
+        # Table commands go under: myapp query table repos ...
+        args = parser.parse_args(["query", "table", "repos", "--format", "json"])
         assert hasattr(args, "_sqlflag_cmd")
 
     def test_mount_sql_under_group(self, sample_db):
@@ -294,7 +294,7 @@ class TestConvenienceMount:
         main = click.Group()
         SqlFlag(sample_db).mount(main)
         runner = CliRunner()
-        result = runner.invoke(main, ["query", "repos", "--format", "json"])
+        result = runner.invoke(main, ["query", "table", "repos", "--format", "json"])
         assert result.exit_code == 0
         result = runner.invoke(main, ["query", "schema"])
         assert result.exit_code == 0
@@ -304,14 +304,14 @@ class TestConvenienceMount:
         main = typer.Typer()
         click_app = SqlFlag(sample_db).mount(main)
         runner = CliRunner()
-        result = runner.invoke(click_app, ["query", "repos", "--format", "json"])
+        result = runner.invoke(click_app, ["query", "table", "repos", "--format", "json"])
         assert result.exit_code == 0
 
     def test_mount_argparse(self, sample_db):
         import argparse
         parser = argparse.ArgumentParser()
         SqlFlag(sample_db).mount(parser)
-        args = parser.parse_args(["query", "repos", "--format", "json"])
+        args = parser.parse_args(["query", "table", "repos", "--format", "json"])
         assert hasattr(args, "_sqlflag_cmd")
 
 
@@ -320,7 +320,7 @@ class TestSearchCommand:
         app = SqlFlag(sample_db_with_fts)
         runner = CliRunner()
         result = runner.invoke(app.click_app, [
-            "query", "repos", "--search", "alpha", "--format", "json",
+            "table", "repos", "--search", "alpha", "--format", "json",
         ])
         assert result.exit_code == 0, result.output
         rows = [json.loads(line) for line in result.output.strip().split("\n")]
