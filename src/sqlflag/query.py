@@ -2,7 +2,7 @@
 
 import sqlite3
 from sqlite_utils import Database
-from sqlflag.parser import parse_value, _coerce_value, OPERATORS
+from sqlflag.parser import parse_value, _coerce_value, OPERATORS, has_operator_prefix
 from sqlflag.schema import SchemaInfo
 
 
@@ -50,9 +50,6 @@ class QueryEngine:
     def execute_sql(self, sql: str) -> list[dict]:
         return [dict(row) for row in self._db.execute(sql).fetchall()]
 
-    def search(self, table: str, query: str) -> list[dict]:
-        return list(self._db[table].search(query))
-
     def _compile_filters(self, table, filters, conjunction):
         if not filters:
             return "", []
@@ -67,13 +64,7 @@ class QueryEngine:
             op_params = []
 
             for v in values:
-                has_op = False
-                for op_name in OPERATORS:
-                    if v.startswith(op_name + ":"):
-                        has_op = True
-                        break
-
-                if v == "null" or has_op:
+                if v == "null" or has_operator_prefix(v):
                     frag, params = parse_value(col_name, v, col_type)
                     op_fragments.append(frag)
                     op_params.extend(params)

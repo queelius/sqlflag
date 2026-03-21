@@ -3,14 +3,12 @@
 from datetime import datetime, timedelta
 import re
 
-OPERATORS = {
-    "not": "not",
-    "gt": "gt",
-    "lt": "lt",
-    "contains": "contains",
-    "since": "since",
-    "before": "before",
-}
+OPERATORS = frozenset({"not", "gt", "lt", "contains", "since", "before"})
+
+
+def has_operator_prefix(value: str) -> bool:
+    return any(value.startswith(op + ":") for op in OPERATORS)
+
 
 _RELATIVE_DATE_RE = re.compile(r"^(\d+)(min|h|d|w|mo|y)$")
 
@@ -97,6 +95,3 @@ def _apply_operator(column: str, op: str, value: str, col_type: str) -> tuple[st
     if op == "before":
         resolved = parse_relative_date(value) or value
         return f"[{column}] < ?", [resolved]
-
-    coerced = _coerce_value(value, col_type)
-    return f"[{column}] = ?", [coerced]
