@@ -17,14 +17,15 @@ classifiers = [
 ]
 dependencies = [
     "sqlite-utils>=3.35",
-    "typer>=0.9",
     "rich>=13",
 ]
 
 [project.optional-dependencies]
+typer = ["typer>=0.9"]
 dev = [
     "pytest>=7",
     "pytest-cov",
+    "typer>=0.9",
 ]
 
 [project.urls]
