@@ -63,7 +63,7 @@ RESERVED_COMMANDS = frozenset({"sql", "schema"})
 
 # in _build():
 def _build(self) -> click.Group:
-    root = click.Group(help="Query database tables.")
+    root = click.Group()
 
     for table_name in self._schema.queryable_names():
         if table_name in RESERVED_COMMANDS:
