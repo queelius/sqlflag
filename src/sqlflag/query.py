@@ -7,12 +7,12 @@ from sqlflag.schema import SchemaInfo
 
 
 class QueryEngine:
-    def __init__(self, db_path: str):
+    def __init__(self, db_path: str, schema: SchemaInfo | None = None):
         self._db_path = db_path
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
         conn.row_factory = sqlite3.Row
         self._db = Database(conn)
-        self._schema = SchemaInfo(db_path)
+        self._schema = schema or SchemaInfo(db_path)
 
     def query(
         self,

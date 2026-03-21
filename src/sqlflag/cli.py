@@ -18,7 +18,7 @@ class SqlFlag:
         self._db_path = db_path
         self._tables = tables
         self._schema = SchemaInfo(db_path, tables=tables)
-        self._engine = QueryEngine(db_path)
+        self._engine = QueryEngine(db_path, schema=self._schema)
         self._click_app = self._build()
 
     @property
