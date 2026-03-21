@@ -27,7 +27,7 @@ sqlflag auto-generates CLIs from SQLite databases. The schema drives everything:
 
 **Two tiers:** Column flags handle single-table AND/OR filtering. Raw SQL (`sql` command) handles JOINs, aggregations, and complex boolean logic.
 
-**Command structure:** Tables are namespaced under a `table` subgroup to avoid collisions with built-in commands (`sql`, `schema`). When mounted via an adapter (e.g., `query_name="db"`), the path is `db table repos --stars gt:5`. Direct `click_app` usage: `table repos --stars gt:5`.
+**Command structure:** Tables are promoted to top-level commands alongside `sql` and `schema`. If a table name collides with a built-in command, it is skipped with a warning (use the `sql` command to query it directly). When mounted via an adapter (e.g., `query_name="db"`), the path is `db repos --stars gt:5`. Direct `click_app` usage: `repos --stars gt:5`.
 
 **Dependency flow:**
 ```
