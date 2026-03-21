@@ -1,4 +1,6 @@
 import json
+
+import pytest
 from click.testing import CliRunner
 from sqlflag.cli import SqlFlag
 
@@ -343,3 +345,35 @@ class TestSearchCommand:
         assert result.exit_code == 0, result.output
         rows = [json.loads(line) for line in result.output.strip().split("\n")]
         assert any(r["name"] == "alpha" for r in rows)
+
+
+class TestCommandCollision:
+    def test_colliding_table_skipped(self, collision_db):
+        """A table named 'sql' should not become a subcommand."""
+        with pytest.warns(UserWarning, match="table 'sql' skipped"):
+            app = SqlFlag(collision_db)
+        runner = CliRunner()
+        # 'sql' should be the built-in command, not the table
+        result = runner.invoke(app.click_app, [
+            "sql", "SELECT count(*) as n FROM sql", "--format", "json",
+        ])
+        assert result.exit_code == 0, result.output
+        rows = [json.loads(line) for line in result.output.strip().split("\n")]
+        assert rows[0]["n"] == 1
+
+    def test_non_colliding_tables_still_work(self, collision_db):
+        """Other tables should still be queryable as subcommands."""
+        with pytest.warns(UserWarning, match="table 'sql' skipped"):
+            app = SqlFlag(collision_db)
+        runner = CliRunner()
+        result = runner.invoke(app.click_app, ["repos", "--format", "json"])
+        assert result.exit_code == 0, result.output
+
+    def test_schema_shows_colliding_table(self, collision_db):
+        """Schema command should still list skipped tables."""
+        with pytest.warns(UserWarning, match="table 'sql' skipped"):
+            app = SqlFlag(collision_db)
+        runner = CliRunner()
+        result = runner.invoke(app.click_app, ["schema"])
+        assert result.exit_code == 0
+        assert "sql" in result.output

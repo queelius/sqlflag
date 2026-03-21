@@ -61,3 +61,15 @@ def sample_db_with_fts(sample_db):
     db = Database(sample_db)
     db["repos"].enable_fts(["name", "description"], create_triggers=True)
     return sample_db
+
+
+@pytest.fixture
+def collision_db(tmp_path):
+    """Database with a table named 'sql' to test collision handling."""
+    db_path = str(tmp_path / "collision.db")
+    db = Database(db_path)
+    db.execute("CREATE TABLE sql (id INTEGER, value TEXT)")
+    db["sql"].insert_all([{"id": 1, "value": "one"}])
+    db.execute("CREATE TABLE repos (name TEXT, stars INTEGER)")
+    db["repos"].insert_all([{"name": "alpha", "stars": 100}])
+    return db_path
