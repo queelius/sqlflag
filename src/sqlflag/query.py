@@ -31,7 +31,7 @@ class QueryEngine:
         # FTS search: AND with other filters via rowid subquery
         if search:
             fts_condition = f"[{table}].rowid IN (SELECT rowid FROM [{table}_fts] WHERE [{table}_fts] MATCH ?)"
-            params.append(search)
+            params.insert(0, search)
             if where_clause:
                 where_clause = f"{fts_condition} AND ({where_clause})"
             else:

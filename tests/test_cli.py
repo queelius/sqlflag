@@ -346,6 +346,17 @@ class TestSearchCommand:
         rows = [json.loads(line) for line in result.output.strip().split("\n")]
         assert any(r["name"] == "alpha" for r in rows)
 
+    def test_fts_search_with_filter(self, sample_db_with_fts):
+        app = SqlFlag(sample_db_with_fts)
+        runner = CliRunner()
+        result = runner.invoke(app.click_app, [
+            "repos", "--language", "python", "--search", "alpha", "--format", "json",
+        ])
+        assert result.exit_code == 0, result.output
+        rows = [json.loads(line) for line in result.output.strip().split("\n")]
+        assert len(rows) == 1
+        assert rows[0]["name"] == "alpha"
+
 
 class TestCommandCollision:
     def test_colliding_table_skipped(self, collision_db):
