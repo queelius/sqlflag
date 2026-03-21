@@ -112,6 +112,24 @@ class TestViews:
         assert all(r["is_archived"] == 0 for r in rows)
 
 
+class TestReservedWordColumns:
+    def test_equality_filter_on_reserved_word(self, reserved_word_db):
+        engine = QueryEngine(reserved_word_db)
+        rows = engine.query("items", filters={"group": ["a"]})
+        assert len(rows) == 2
+
+    def test_operator_filter_on_reserved_word(self, reserved_word_db):
+        engine = QueryEngine(reserved_word_db)
+        rows = engine.query("items", filters={"group": ["not:a"]})
+        assert len(rows) == 1
+        assert rows[0]["group"] == "b"
+
+    def test_in_clause_on_reserved_word(self, reserved_word_db):
+        engine = QueryEngine(reserved_word_db)
+        rows = engine.query("items", filters={"group": ["a", "b"]})
+        assert len(rows) == 3
+
+
 class TestSearch:
     def test_fts_search(self, sample_db_with_fts):
         engine = QueryEngine(sample_db_with_fts)

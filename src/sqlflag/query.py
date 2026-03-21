@@ -89,7 +89,7 @@ class QueryEngine:
             elif len(bare_values) > 1:
                 coerced = [_coerce_value(v, col_type) for v in bare_values]
                 placeholders = ", ".join("?" for _ in coerced)
-                col_conditions.append(f"{col_name} IN ({placeholders})")
+                col_conditions.append(f"[{col_name}] IN ({placeholders})")
                 col_params.extend(coerced)
 
             col_conditions.extend(op_fragments)

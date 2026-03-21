@@ -64,6 +64,20 @@ def sample_db_with_fts(sample_db):
 
 
 @pytest.fixture
+def reserved_word_db(tmp_path):
+    """Database with a column named 'group' (SQLite reserved word)."""
+    db_path = str(tmp_path / "reserved.db")
+    db = Database(db_path)
+    db.execute('CREATE TABLE items (id INTEGER, "group" TEXT, value INTEGER)')
+    db["items"].insert_all([
+        {"id": 1, "group": "a", "value": 10},
+        {"id": 2, "group": "b", "value": 20},
+        {"id": 3, "group": "a", "value": 30},
+    ])
+    return db_path
+
+
+@pytest.fixture
 def collision_db(tmp_path):
     """Database with a table named 'sql' to test collision handling."""
     db_path = str(tmp_path / "collision.db")

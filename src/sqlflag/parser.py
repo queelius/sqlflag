@@ -64,39 +64,39 @@ def parse_value(column: str, value: str, col_type: str = "TEXT") -> tuple[str, l
 
     # Rule 2: literal null
     if value == "null":
-        return f"{column} IS NULL", []
+        return f"[{column}] IS NULL", []
 
     # Rule 3: bare value = equality
     coerced = _coerce_value(value, col_type)
-    return f"{column} = ?", [coerced]
+    return f"[{column}] = ?", [coerced]
 
 
 def _apply_operator(column: str, op: str, value: str, col_type: str) -> tuple[str, list]:
     if op == "not":
         if value == "null":
-            return f"{column} IS NOT NULL", []
+            return f"[{column}] IS NOT NULL", []
         coerced = _coerce_value(value, col_type)
-        return f"{column} != ?", [coerced]
+        return f"[{column}] != ?", [coerced]
 
     if op == "gt":
         coerced = _coerce_value(value, col_type)
-        return f"{column} > ?", [coerced]
+        return f"[{column}] > ?", [coerced]
 
     if op == "lt":
         coerced = _coerce_value(value, col_type)
-        return f"{column} < ?", [coerced]
+        return f"[{column}] < ?", [coerced]
 
     if op == "contains":
         escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        return f"{column} LIKE ? ESCAPE '\\'", [f"%{escaped}%"]
+        return f"[{column}] LIKE ? ESCAPE '\\'", [f"%{escaped}%"]
 
     if op == "since":
         resolved = parse_relative_date(value) or value
-        return f"{column} >= ?", [resolved]
+        return f"[{column}] >= ?", [resolved]
 
     if op == "before":
         resolved = parse_relative_date(value) or value
-        return f"{column} < ?", [resolved]
+        return f"[{column}] < ?", [resolved]
 
     coerced = _coerce_value(value, col_type)
-    return f"{column} = ?", [coerced]
+    return f"[{column}] = ?", [coerced]
