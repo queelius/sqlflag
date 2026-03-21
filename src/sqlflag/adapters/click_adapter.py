@@ -30,7 +30,7 @@ def mount(app: click.Group, sqlflag: SqlFlag, query_name: str = "query") -> clic
     Usage:
         from sqlflag.adapters.click_adapter import mount
         mount(my_click_group, SqlFlag("db.sqlite"), query_name="browse")
-        # my_click_group browse table repos --language Python
+        # my_click_group browse repos --language Python
         # my_click_group browse schema repos
         # my_click_group browse sql "SELECT ..."
     """

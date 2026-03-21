@@ -21,7 +21,7 @@ class ArgparseAdapter(Adapter):
     ) -> argparse.ArgumentParser:
         root = sqlflag.click_app
 
-        # Transfer all root commands (table group, sql, schema)
+        # Transfer all root commands (table subcommands, sql, schema)
         combined = click.Group(name=query_name, help="Query database tables.")
         for name, cmd in root.commands.items():
             combined.add_command(cmd, name=name)
