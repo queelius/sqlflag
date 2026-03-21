@@ -126,13 +126,13 @@ class SqlFlag:
                 if values:
                     filters[col_name] = list(values)
 
-            rows = list(engine.query(
+            rows = engine.query(
                 table_name, filters=filters,
                 conjunction="any" if use_any else "all",
                 order=list(order_specs) if order_specs else None,
                 limit=limit, columns=columns_list,
                 search=search_query,
-            ))
+            )
 
             format_rows(rows, fmt=fmt)
 

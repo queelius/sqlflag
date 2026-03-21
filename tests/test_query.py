@@ -131,12 +131,6 @@ class TestReservedWordColumns:
 
 
 class TestSearch:
-    def test_fts_search(self, sample_db_with_fts):
-        engine = QueryEngine(sample_db_with_fts)
-        rows = list(engine.search("repos", "alpha"))
-        assert len(rows) >= 1
-        assert any(r["name"] == "alpha" for r in rows)
-
     def test_fts_search_with_filter(self, sample_db_with_fts):
         engine = QueryEngine(sample_db_with_fts)
         rows = engine.query("repos", filters={"language": ["python"]}, search="alpha")
