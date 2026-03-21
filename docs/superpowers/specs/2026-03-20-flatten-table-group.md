@@ -42,31 +42,35 @@ root
 
 ### Collision handling
 
-Add a `RESERVED_COMMANDS = frozenset({"sql", "schema"})` constant alongside the existing `RESERVED_FLAGS`.
+Add a `RESERVED_COMMANDS = frozenset({"sql", "schema"})` constant in `cli.py` (this is a CLI-layer concern, unlike `RESERVED_FLAGS` which lives in `schema.py` because it is used by `SchemaInfo.flaggable_columns()`).
 
 At build time in `_build()`, if a queryable table/view name is in `RESERVED_COMMANDS`:
 - Skip the table command (do not add it to the root group)
-- Emit a warning via `click.echo(f"Warning: table '{name}' skipped (conflicts with built-in command). Use: sql \"SELECT * FROM {name}\"", err=True)`
+- Emit a `warnings.warn()` (consistent with how `RESERVED_FLAGS` collisions are handled in `schema.py`)
 
-The built-in `sql` and `schema` commands always win. Users can still query colliding tables via the `sql` command.
+Built-in commands always win, even if the user explicitly passes `tables=["sql", "repos"]`. The `schema` command still shows collision-skipped tables in its output (since `_print_schema_overview` iterates raw `table_names()`/`view_names()`, not the filtered command list). Users can query colliding tables via the `sql` command.
 
 ## Changes
 
 ### `src/sqlflag/cli.py`: `SqlFlag._build()`
 
-Remove the `table_group = click.Group(name="table", ...)` intermediary. Add table commands directly to `root`:
+Remove the `table_group = click.Group(name="table", ...)` intermediary. Add table commands directly to `root`. Define `RESERVED_COMMANDS` in this module:
 
 ```python
+import warnings
+
+RESERVED_COMMANDS = frozenset({"sql", "schema"})
+
+# in _build():
 def _build(self) -> click.Group:
-    root = click.Group()
+    root = click.Group(help="Query database tables.")
 
     for table_name in self._schema.queryable_names():
         if table_name in RESERVED_COMMANDS:
-            click.echo(
-                f"Warning: table '{table_name}' skipped "
+            warnings.warn(
+                f"table '{table_name}' skipped "
                 f"(conflicts with built-in command). "
                 f"Use: sql \"SELECT * FROM {table_name}\"",
-                err=True,
             )
             continue
         cmd = self._make_table_command(table_name)
@@ -76,17 +80,9 @@ def _build(self) -> click.Group:
     ...
 ```
 
-### `src/sqlflag/schema.py`
-
-Add `RESERVED_COMMANDS` constant:
-
-```python
-RESERVED_COMMANDS = frozenset({"sql", "schema"})
-```
-
 ### Adapters (`src/sqlflag/adapters/`)
 
-No changes needed. Adapters iterate `root.commands.items()` and are agnostic to what those commands are.
+No code changes needed. Adapters iterate `root.commands.items()` and are agnostic to what those commands are. Update docstring examples and inline comments across all three adapters (`click_adapter.py`, `typer_adapter.py`, `argparse_adapter.py`) to remove references to the `table` group.
 
 ### Tests (`tests/test_cli.py`)
 
@@ -105,7 +101,7 @@ Update the "Command structure" paragraph to reflect the flattened hierarchy.
 
 - Value parsing (`parser.py`)
 - Query compilation (`query.py`)
-- Schema introspection (`schema.py`, except the new constant)
+- Schema introspection (`schema.py`)
 - Output formatting (`formatter.py`, `formats/`)
 - The adapter pattern and `mount()` API
 - The `QueryEngine` public API
