@@ -1,10 +1,14 @@
 """CLI generation: SqlFlag class with dynamic query commands."""
 
+import warnings
+
 import click
 from sqlflag.query import QueryEngine
 from sqlflag.schema import SchemaInfo, RESERVED_FLAGS
 from sqlflag.formats import available_formats
 from sqlflag.formatter import format_rows, detect_format
+
+RESERVED_COMMANDS = frozenset({"sql", "schema"})
 
 
 class SqlFlag:
@@ -27,12 +31,18 @@ class SqlFlag:
     def _build(self) -> click.Group:
         root = click.Group()
 
-        # table group
-        table_group = click.Group(name="table", help="Query database tables.")
+        # table commands at root level
         for table_name in self._schema.queryable_names():
+            if table_name in RESERVED_COMMANDS:
+                warnings.warn(
+                    f"table '{table_name}' skipped "
+                    f"(conflicts with built-in command). "
+                    f"Use: sql \"SELECT * FROM {table_name}\"",
+                    stacklevel=2,
+                )
+                continue
             cmd = self._make_table_command(table_name)
-            table_group.add_command(cmd, name=table_name)
-        root.add_command(table_group)
+            root.add_command(cmd, name=table_name)
 
         # sql command
         engine = self._engine

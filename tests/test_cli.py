@@ -315,6 +315,24 @@ class TestConvenienceMount:
         assert hasattr(args, "_sqlflag_cmd")
 
 
+class TestFlattenedStructure:
+    def test_table_commands_at_root(self, sample_db):
+        """Tables are direct children of root, not nested under 'table' group."""
+        app = SqlFlag(sample_db)
+        runner = CliRunner()
+        result = runner.invoke(app.click_app, ["repos", "--format", "json"])
+        assert result.exit_code == 0, result.output
+        lines = result.output.strip().split("\n")
+        assert len(lines) == 4
+
+    def test_table_subgroup_removed(self, sample_db):
+        """The 'table' subcommand should no longer exist."""
+        app = SqlFlag(sample_db)
+        runner = CliRunner()
+        result = runner.invoke(app.click_app, ["table", "repos", "--format", "json"])
+        assert result.exit_code != 0
+
+
 class TestSearchCommand:
     def test_fts_search(self, sample_db_with_fts):
         app = SqlFlag(sample_db_with_fts)
