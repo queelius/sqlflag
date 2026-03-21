@@ -6,41 +6,17 @@ import argparse
 from typing import TYPE_CHECKING
 
 import click
-from sqlflag.adapters import Adapter
 
 if TYPE_CHECKING:
     from sqlflag.cli import SqlFlag
 
 
-class ArgparseAdapter(Adapter):
-    def mount(
-        self,
-        app: argparse.ArgumentParser,
-        sqlflag: SqlFlag,
-        query_name: str = "query",
-    ) -> argparse.ArgumentParser:
-        root = sqlflag.click_app
-
-        # Transfer all root commands (table subcommands, sql, schema)
-        combined = click.Group(name=query_name, help="Query database tables.")
-        for name, cmd in root.commands.items():
-            combined.add_command(cmd, name=name)
-
-        # Add a single argparse subparser that delegates to the combined group
-        subparsers = self._find_or_create_subparsers(app)
-        sub = subparsers.add_parser(query_name, help="Query database tables.", add_help=False)
-        sub.add_argument("_sqlflag_args", nargs=argparse.REMAINDER)
-        sub.set_defaults(_sqlflag_cmd=combined)
-
-        return app
-
-    @staticmethod
-    def _find_or_create_subparsers(parser: argparse.ArgumentParser):
-        if parser._subparsers is not None:
-            for action in parser._subparsers._group_actions:
-                if isinstance(action, argparse._SubParsersAction):
-                    return action
-        return parser.add_subparsers(dest="command")
+def _find_or_create_subparsers(parser: argparse.ArgumentParser):
+    if parser._subparsers is not None:
+        for action in parser._subparsers._group_actions:
+            if isinstance(action, argparse._SubParsersAction):
+                return action
+    return parser.add_subparsers(dest="command")
 
 
 def mount(
@@ -67,7 +43,20 @@ def mount(
         # CLI: myapp browse schema repos
         # CLI: myapp browse sql "SELECT ..."
     """
-    return ArgparseAdapter().mount(app, sqlflag, query_name)
+    root = sqlflag.click_app
+
+    # Transfer all root commands (table subcommands, sql, schema)
+    combined = click.Group(name=query_name, help="Query database tables.")
+    for name, cmd in root.commands.items():
+        combined.add_command(cmd, name=name)
+
+    # Add a single argparse subparser that delegates to the combined group
+    subparsers = _find_or_create_subparsers(app)
+    sub = subparsers.add_parser(query_name, help="Query database tables.", add_help=False)
+    sub.add_argument("_sqlflag_args", nargs=argparse.REMAINDER)
+    sub.set_defaults(_sqlflag_cmd=combined)
+
+    return app
 
 
 def invoke(parsed: argparse.Namespace) -> bool:

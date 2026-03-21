@@ -7,21 +7,9 @@ from typing import TYPE_CHECKING
 import click
 import typer
 import typer.main
-from sqlflag.adapters import Adapter
 
 if TYPE_CHECKING:
     from sqlflag.cli import SqlFlag
-
-
-class TyperAdapter(Adapter):
-    def mount(self, app: typer.Typer, sqlflag: SqlFlag, query_name: str = "query") -> click.Group:
-        click_group = typer.main.get_group(app)
-        root = sqlflag.click_app
-        group = click.Group(name=query_name, help="Query database tables.")
-        for name, cmd in root.commands.items():
-            group.add_command(cmd, name=name)
-        click_group.add_command(group)
-        return click_group
 
 
 def mount(app: typer.Typer, sqlflag: SqlFlag, query_name: str = "query") -> click.Group:
@@ -34,4 +22,10 @@ def mount(app: typer.Typer, sqlflag: SqlFlag, query_name: str = "query") -> clic
         from sqlflag.adapters.typer_adapter import mount
         click_app = mount(my_typer_app, SqlFlag("db.sqlite"), query_name="browse")
     """
-    return TyperAdapter().mount(app, sqlflag, query_name)
+    click_group = typer.main.get_group(app)
+    root = sqlflag.click_app
+    group = click.Group(name=query_name, help="Query database tables.")
+    for name, cmd in root.commands.items():
+        group.add_command(cmd, name=name)
+    click_group.add_command(group)
+    return click_group
