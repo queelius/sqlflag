@@ -50,6 +50,24 @@ class QueryEngine:
     def execute_sql(self, sql: str) -> list[dict]:
         return [dict(row) for row in self._db.execute(sql).fetchall()]
 
+    def distinct_values_bounded(
+        self, table: str, column: str, max_card: int
+    ) -> list[str] | None:
+        """Return distinct non-NULL string values for a column, or None if cardinality exceeds max_card.
+
+        Fetches max_card + 1 values in a single query; if we got that many, we
+        know cardinality exceeds the limit and return None. This is used by
+        shell completion to gate per-column value enumeration.
+        """
+        sql = (
+            f"SELECT DISTINCT [{column}] FROM [{table}] "
+            f"WHERE [{column}] IS NOT NULL LIMIT ?"
+        )
+        rows = self._db.execute(sql, (max_card + 1,)).fetchall()
+        if len(rows) > max_card:
+            return None
+        return [str(r[0]) for r in rows]
+
     def _compile_filters(self, table, filters, conjunction):
         if not filters:
             return "", []
