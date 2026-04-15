@@ -43,6 +43,41 @@ class TestTableFormat:
         assert "beta" in output
         assert "100" in output
 
+    def test_brackets_in_data_render_literally(self):
+        """Cell values containing markup-like brackets (e.g. LLaMA's [INST]/[/INST] tokens)
+        must not be parsed as Rich markup. Real bug: querying chat databases crashed
+        with rich.errors.MarkupError before we wrapped values in Text()."""
+        rows = [
+            {"role": "user", "content": "[INST] Hello [/INST]"},
+            {"role": "assistant", "content": "[bold]not bold[/bold]"},
+            {"role": "system", "content": "Plain text"},
+        ]
+        buf = StringIO()
+        format_rows(rows, fmt="table", file=buf)
+        out = buf.getvalue()
+        # Output should contain the literal bracket strings
+        assert "[INST]" in out
+        assert "[/INST]" in out
+        # Plain rows still work
+        assert "Plain text" in out
+
+    def test_brackets_in_column_names(self):
+        """Column names with brackets must not crash either."""
+        rows = [{"weird[col]": "value"}]
+        buf = StringIO()
+        format_rows(rows, fmt="table", file=buf)
+        out = buf.getvalue()
+        assert "value" in out
+
+    def test_table_with_none_values(self):
+        """None values render as empty string without crashing."""
+        rows = [{"a": "x", "b": None}, {"a": None, "b": "y"}]
+        buf = StringIO()
+        format_rows(rows, fmt="table", file=buf)
+        out = buf.getvalue()
+        assert "x" in out
+        assert "y" in out
+
 
 class TestEmpty:
     def test_empty_rows(self):
