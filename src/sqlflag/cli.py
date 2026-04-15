@@ -3,6 +3,7 @@
 import warnings
 
 import click
+from click.shell_completion import CompletionItem
 from sqlflag.query import QueryEngine
 from sqlflag.schema import SchemaInfo, RESERVED_FLAGS
 from sqlflag.formats import available_formats
@@ -11,12 +12,108 @@ from sqlflag.formatter import format_rows, detect_format
 RESERVED_COMMANDS = frozenset({"sql", "schema"})
 
 
+class ColumnListType(click.ParamType):
+    """Comma-separated column list for --columns.
+
+    Shell-complete: offers remaining columns, comma-aware so that typing
+    `name,<TAB>` returns `name,language`, `name,stars`, etc. (not `name,name`).
+    """
+
+    name = "column_list"
+
+    def __init__(self, columns: list[str]):
+        self._columns = columns
+
+    def convert(self, value, param, ctx):
+        return value  # no runtime conversion; handled downstream
+
+    def shell_complete(self, ctx, param, incomplete):
+        parts = incomplete.split(",")
+        already = {p.strip() for p in parts[:-1] if p.strip()}
+        prefix = ",".join(parts[:-1])
+        if prefix:
+            prefix += ","
+        current = parts[-1]
+        return [
+            CompletionItem(prefix + col)
+            for col in self._columns
+            if col not in already and col.startswith(current)
+        ]
+
+
+class OrderType(click.ParamType):
+    """Column name for ORDER BY with optional `-` prefix for DESC.
+
+    Shell-complete: offers ascending columns by default; when the incomplete
+    starts with `-`, offers `-column` candidates for DESC. Note: Click/bash
+    treat `-<TAB>` at a value position as a new option flag, so tab-completing
+    the `-` prefix does not route through this method in practice. Users type
+    `--order -column` manually. Unit tests still exercise the `-` path in
+    case Click's dispatch changes.
+    """
+
+    name = "order_spec"
+
+    def __init__(self, columns: list[str]):
+        self._columns = columns
+
+    def convert(self, value, param, ctx):
+        return value
+
+    def shell_complete(self, ctx, param, incomplete):
+        if incomplete.startswith("-"):
+            stem = incomplete[1:]
+            return [
+                CompletionItem(f"-{col}")
+                for col in self._columns
+                if col.startswith(stem)
+            ]
+        return [
+            CompletionItem(col)
+            for col in self._columns
+            if col.startswith(incomplete)
+        ]
+
+
+class FilterValueType(click.ParamType):
+    """Per-column filter value: accepts `[op:]value`. Completes operator prefixes.
+
+    The operator set is derived from the column's type category (see
+    SchemaInfo.operators_for). The reserved literal `null` is offered as a
+    completion candidate so `IS NULL` / `IS NOT NULL` queries are discoverable.
+    """
+
+    name = "filter_value"
+
+    def __init__(self, operators: list[str]):
+        self._operators = operators
+
+    def convert(self, value, param, ctx):
+        return value  # parsing happens in the query engine
+
+    def shell_complete(self, ctx, param, incomplete):
+        items = []
+        for op in self._operators:
+            prefix = f"{op}:"
+            if prefix.startswith(incomplete):
+                items.append(CompletionItem(prefix))
+        if "null".startswith(incomplete):
+            items.append(CompletionItem("null"))
+        return items
+
+
 class SqlFlag:
     """Auto-generate a CLI from a SQLite database."""
 
-    def __init__(self, db_path: str, tables: list[str] | None = None):
+    def __init__(
+        self,
+        db_path: str,
+        tables: list[str] | None = None,
+        default_columns: dict[str, list[str]] | None = None,
+    ):
         self._db_path = db_path
         self._tables = tables
+        self._default_columns = default_columns or {}
         self._schema = SchemaInfo(db_path, tables=tables)
         self._engine = QueryEngine(db_path, schema=self._schema)
         self._click_app = self._build()
@@ -78,15 +175,19 @@ class SqlFlag:
     def _make_table_command(self, table_name: str) -> click.Command:
         schema = self._schema
         engine = self._engine
+        table_default_columns = self._default_columns.get(table_name)
+        all_column_names = [c.name for c in schema.columns(table_name)]
 
         params = [
             click.Option(["--any"], is_flag=True, default=False,
                           help="OR-compose conditions across flags (default is AND)."),
             click.Option(["--order"], multiple=True,
+                          type=OrderType(all_column_names),
                           help="ORDER BY column. Prefix with - for DESC."),
             click.Option(["--limit"], type=int, default=None,
                           help="Max rows to return."),
             click.Option(["--columns"], default=None,
+                          type=ColumnListType(all_column_names),
                           help="Comma-separated columns to display."),
             click.Option(["--format"], default=None,
                           type=click.Choice(available_formats()),
@@ -108,7 +209,12 @@ class SqlFlag:
             ops = schema.operators_for(table_name, col.name)
             help_text = f"Filter: {col.name} ({col_type}). Ops: {', '.join(ops)}"
             params.append(
-                click.Option([flag_name], multiple=True, help=help_text)
+                click.Option(
+                    [flag_name],
+                    multiple=True,
+                    type=FilterValueType(ops),
+                    help=help_text,
+                )
             )
 
         def callback(**kwargs):
@@ -118,7 +224,11 @@ class SqlFlag:
             limit = kwargs.get("limit")
             columns_str = kwargs.get("columns")
             search_query = kwargs.get("search")
-            columns_list = [c.strip() for c in columns_str.split(",")] if columns_str else None
+            columns_list = (
+                [c.strip() for c in columns_str.split(",")]
+                if columns_str
+                else table_default_columns
+            )
 
             filters = {}
             for param_name, col_name in col_map.items():
@@ -185,21 +295,3 @@ class SqlFlag:
             console.print(f"Reserved (use sql): {', '.join(reserved)}")
         fts = self._schema.has_fts(table_name)
         console.print(f"FTS index: {'yes' if fts else 'no'}")
-
-    def mount(self, app, query_name: str = "query"):
-        """Mount sqlflag commands into an existing CLI app.
-
-        Convenience method that auto-detects the framework. For explicit
-        control, use the adapter modules in sqlflag.adapters instead.
-        """
-        import argparse
-
-        if isinstance(app, argparse.ArgumentParser):
-            from sqlflag.adapters.argparse_adapter import mount
-            return mount(app, self, query_name)
-        elif isinstance(app, click.Group):
-            from sqlflag.adapters.click_adapter import mount
-            return mount(app, self, query_name)
-        else:
-            from sqlflag.adapters.typer_adapter import mount
-            return mount(app, self, query_name)

@@ -18,15 +18,17 @@ classifiers = [
 dependencies = [
     "sqlite-utils>=3.35",
     "rich>=13",
+    "click>=8",
 ]
 
 [project.optional-dependencies]
-typer = ["typer>=0.9"]
 dev = [
     "pytest>=7",
     "pytest-cov",
-    "typer>=0.9",
 ]
+
+[project.scripts]
+sqlflag = "sqlflag.__main__:main"
 
 [project.urls]
 Homepage = "https://github.com/queelius/sqlflag"

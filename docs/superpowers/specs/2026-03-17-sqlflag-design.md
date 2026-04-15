@@ -1,135 +1,145 @@
 # sqlflag Design Spec
 
-**Date**: 2026-03-17
-**Status**: Draft
-**PyPI name**: `sqlflag`
+**Revised:** 2026-04-14
+**Status:** Active
+**PyPI name:** `sqlflag`
 
 ## Problem
 
-SQL-backed CLIs and MCP servers repeatedly reimplement the same layers: schema introspection, flag-to-SQL translation, output formatting, and connection management. Each project (repoindex, chartfold, memex, crier, jot) solves this differently, with 200-700 lines of per-project query/CLI boilerplate.
+SQLite is the easiest database to carry around, but it has no good ad-hoc CLI. `sqlite3` drops you into a SQL REPL with no flag syntax, no tab completion for columns, no pretty output, no filter composition. Tools like `datasette` are full web apps. The gap is a **CLI that shows up already knowing the schema** so filtering feels like any other Unix command:
 
-## Solution
+```
+sqlflag mydb.db repos --language python --stars gt:50 --order -stars --limit 10
+```
 
-A Python library that auto-generates a user-friendly CLI from any SQLite database. Tables become subcommands. Columns become filter flags. A small, closed operator syntax handles non-equality filters. Raw SQL provides the escape hatch.
+No configuration. No per-database code. Point it at any SQLite file and the CLI appears.
+
+## What sqlflag is
+
+A **standalone CLI** (`sqlflag`) that reads a SQLite schema, then exposes each table and view as a subcommand with one filter flag per column. Typed operators (`gt:`, `since:`, `contains:`) handle non-equality filtering. Raw SQL is the escape hatch for JOINs, aggregates, and boolean logic too complex for flags.
+
+## What sqlflag is not
+
+- **Not a library for mounting into other CLIs.** Earlier versions shipped Click/Typer/argparse adapters. They were removed because the "zero-code integration" promise breaks down on non-trivial schemas: each host needs `default_columns`, custom column aliases, per-table filters. Host apps are better served by writing a hand-tuned query command against their known schema. sqlflag's value is ad-hoc exploration of *arbitrary* SQLite files.
+- **Not a DSL.** No `--where 'stars > 50 AND language = python'`. If flags aren't enough, use `sql`.
+- **Not a write tool.** Read-only, always.
+- **Not a schema manager.** Doesn't create, alter, or migrate anything.
+
+## Invocation
+
+```
+sqlflag <db_path> [COMMAND] [ARGS...]
+```
+
+The db path is a required first positional argument. Everything after it is a subcommand plus its own args, handled by Click.
+
+Typical sessions:
+
+```
+sqlflag mydb.db                         # list available subcommands (one per table/view + sql + schema)
+sqlflag mydb.db schema                  # overview of all tables/views with row counts
+sqlflag mydb.db schema repos            # columns, types, and available operators for one table
+sqlflag mydb.db repos --help            # per-column flags and reserved flags for this table
+sqlflag mydb.db repos --language python
+sqlflag mydb.db sql "SELECT name, COUNT(*) FROM events GROUP BY name"
+```
+
+`sqlflag` with no args, or `sqlflag --help`, prints a brief usage message. Per-table `--help` comes from Click once a db is loaded.
 
 ## Design Principles
 
-- **Uniformity**: One pattern for filtering: `--col [op:]value`. No alternative syntax.
-- **Simplicity**: Two tiers only. Flags and raw SQL. No intermediate DSL, no `--where`.
-- **Just enough power**: Flags cover single-table filtering with AND/OR composition. SQL covers everything else (JOINs, aggregations, subqueries, nested boolean logic).
-- **Derive from structure**: The schema IS the CLI spec. Adding a column to the database automatically creates a flag. No parallel mappings to maintain.
+- **Uniformity.** One pattern: `--col [op:]value`. No alternative syntax.
+- **Two tiers only.** Column flags for single-table AND/OR filtering. Raw SQL for everything else.
+- **Derive from structure.** The schema IS the CLI. Adding a column creates a flag. No parallel mappings.
+- **Closed operator set.** Seven operators, documented per type. Unknown prefixes are treated as literal values.
+- **Trust the user with escape hatches.** Flag-level type restrictions aren't enforced; schema-level operator lists are *documentation*, not gates.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────┐
-│  Your project CLI                   │
-│  (optional project-specific cmds)   │
-└──────────────┬──────────────────────┘
-               │
-┌──────────────▼──────────────────────┐
-│  sqlflag                            │
-│                                     │
-│  Schema introspection (sqlite-utils)│
-│  Value parser (op:value → SQL)      │
-│  Typer command generation           │
-│  Output formatting (table/json/csv) │
-└──────────────┬──────────────────────┘
-               │
-         ┌─────▼─────┐
-         │  SQLite    │
-         └───────────┘
+sqlflag <db> …
+  │
+  ▼
+__main__.main()          # extracts db_path from argv
+  │
+  ▼
+SqlFlag (cli.py)         # builds the Click group from schema
+  │
+  ├── SchemaInfo         # table/view/column introspection
+  ├── QueryEngine        # filter compilation → parameterized SQL
+  │     └── parser.py    # op:value parsing and type coercion
+  └── formatter.py       # table / json / csv output with TTY autodetect
 ```
 
 ### Dependencies
 
-- **sqlite-utils**: Schema introspection (`table.columns`, `table.rows_where()`), query execution, FTS support (`table.search()`), connection management. Used as a library, not its CLI.
-- **typer**: CLI framework (dynamic command generation)
-- **rich**: Table output formatting (comes with typer)
+- **sqlite-utils**: schema introspection, FTS support, read-only connection handling.
+- **click**: CLI framework. Chosen over Typer because column flags are determined at runtime from the schema, and Click's `click.Command(params=[...])` supports dynamic params naturally.
+- **rich**: pretty-table output.
 
-No custom SQL parser. No sqlglot. sqlite-utils and SQLite itself handle query execution and error reporting.
+No custom SQL parser. SQLite itself validates queries and reports errors.
 
 ## Two Tiers
 
-### Tier 1: Column Flags
+### Tier 1: Column flags
 
-Table queries live under a `query` subcommand group. Each table/view is a subcommand under `query`.
+Each table/view becomes a root subcommand. Every subcommand gets:
 
-Every table/view subcommand gets:
+- One `--colname` flag per column (all `multiple=True`, all `str` at the Click level)
+- Reserved flags for ordering, output, and conjunction (see [Reserved Flags](#reserved-flags))
+- A `--search` flag iff the table has an FTS index
 
-- One `--colname` flag per column (type derived from schema, `multiple=True`)
-- Reserved flags for ordering, output control, and conjunction mode
-- Optional `--search` flag if the table has an FTS index
-
-```bash
-myapp query repos --language python --stars gt:50 --order -stars --limit 10
-myapp query events --created-at since:30d --format json
-myapp query repos --language python --language go
-myapp query repos --language python --stars gt:50 --any
+```
+sqlflag mydb.db repos --language python --stars gt:50 --order -stars --limit 10
+sqlflag mydb.db events --timestamp since:30d --format json
+sqlflag mydb.db repos --language python --language go          # IN clause
+sqlflag mydb.db repos --language python --stars gt:50 --any    # OR across flags
 ```
 
-By default, all conditions are AND-composed (`--all`). Pass `--any` to OR-compose instead.
+Default is AND across flags; `--any` switches to OR. Conditions *within* a single flag always AND together (e.g., `--stars gt:5 --stars lt:100` is always `stars > 5 AND stars < 100`).
 
 ### Tier 2: Raw SQL
 
-```bash
-myapp sql "SELECT r.name, COUNT(e.id) FROM repos r JOIN events e ON ..."
+```
+sqlflag mydb.db sql "SELECT r.name, COUNT(e.id) FROM repos r JOIN events e ON e.repo_id = r.id GROUP BY r.id"
 ```
 
-Read-only enforcement. Full SQL power for JOINs, nested boolean logic, aggregations, subqueries.
+Read-only enforcement via `mode=ro` URI parameter on the sqlite connection. Full SQL power for anything flags can't do.
 
 ## Value Syntax
 
-Every column flag accepts `multiple=True`. Each value is parsed as `[op:]value`.
+Each flag value is parsed as `[op:]value`. Rules are applied in this order:
 
-### Parsing Rules
+1. If the value starts with `KNOWN_OP:` where `KNOWN_OP` is in the closed operator set, apply that operator to the rest
+2. If the value is literally `null`, produce `IS NULL`
+3. Otherwise, treat as a literal for equality
 
-Applied in order:
+Rule 1 means `foo:bar` (with `foo` not a known operator) is treated as the literal string `"foo:bar"` for equality. The colon is only special when preceded by a known operator name.
 
-1. If value matches `KNOWN_OP:REST` where `KNOWN_OP` is in the closed operator set, apply that operator to REST
-2. If value is the literal `null`, produce `IS NULL`
-3. Otherwise, treat the entire string as a literal for equality (`=`)
+The literal string `"null"` cannot be queried via flags; use `sql`.
 
-Rule 1 means a value like `foo:bar` where `foo` is not a known operator is treated as the literal string `"foo:bar"` for equality. The colon is only special when preceded by an operator name from the closed set.
+### Combining values on one flag
 
-The literal string `"null"` cannot be queried via flags. Use `sql` for this rare case.
-
-### Combining Multiple Values on the Same Flag
-
-- All bare values collect into `= val` (single) or `IN (val1, val2, ...)` (multiple)
+- Bare values collect into `= val` (single) or `IN (val1, val2, …)` (multiple)
 - Each operator-prefixed value becomes its own condition
-- Conditions within a flag AND together (regardless of `--any`/`--all` mode)
-- Conditions across different flags are joined by the conjunction mode (AND by default, OR with `--any`)
-
-Mixing bare and operator-prefixed values on the same flag is allowed but discouraged. The system produces valid SQL; contradictory logic (e.g., `--stars 10 --stars gt:50`) is user error.
-
-Examples:
-
-```bash
---language python                       # language = 'python'
---language python --language go         # language IN ('python', 'go')
---stars gt:5 --stars lt:100             # stars > 5 AND stars < 100
---stars gt:5 --language python          # stars > 5 AND language = 'python'
---stars gt:5 --language python --any    # stars > 5 OR language = 'python'
-```
+- All conditions within a flag AND together, regardless of `--any` mode
+- Conditions across different flags are joined by the conjunction mode (AND default, OR with `--any`)
 
 ### Operator Table
 
 | Prefix | SQL | Notes |
 |--------|-----|-------|
-| *(bare)* | `=` / `IN` | Default. Multiple bare values produce IN. |
+| *(bare)* | `=` / `IN` | Default. Multiple bare values → `IN`. |
 | `not:` | `!=` | `not:null` produces `IS NOT NULL`. |
 | `gt:` | `>` | |
 | `lt:` | `<` | |
-| `contains:` | `LIKE '%val%'` | Substring match. User does not supply wildcards. |
-| `since:` | `>=` | Relative dates (`30d`, `4w`, `6h`, `3mo`, `1y`) or absolute ISO 8601. |
+| `contains:` | `LIKE '%val%'` | Substring match; no user-supplied wildcards. |
+| `since:` | `>=` | Relative or absolute dates. |
 | `before:` | `<` | Same date parsing as `since:`. |
 
-7 operators + bare default. Closed set.
+Seven operators. Closed set. Unknown prefixes fall through to literal equality.
 
 ### Relative Date Format
-
-Used with `since:` and `before:` operators:
 
 | Unit | Meaning | Example |
 |------|---------|---------|
@@ -140,74 +150,97 @@ Used with `since:` and `before:` operators:
 | `mo` | months | `3mo` |
 | `y` | years | `1y` |
 
-Absolute dates (ISO 8601) are passed through as-is. Relative dates are computed from the current time to an ISO 8601 string. This works correctly for date/datetime columns stored in ISO 8601 format (SQLite convention).
+Absolute ISO-8601 dates pass through as-is. Relative dates are resolved to an ISO-8601 string at query time. Works correctly for date/datetime columns stored in ISO-8601 format (SQLite convention).
 
 ## Reserved Flags
 
-Every table subcommand includes these. Column flags cannot shadow them.
+Every table subcommand includes these. Columns with the same name are silently omitted from flag generation and remain reachable via `sql`.
 
 | Flag | Purpose | Notes |
 |------|---------|-------|
-| `--all` | AND-compose all conditions | Default behavior. Explicit flag for clarity. |
-| `--any` | OR-compose conditions across flags | Conditions within a single flag still AND together. |
-| `--order COL` | ORDER BY | `multiple=True`. Prefix with `-` for descending: `--order -stars`. |
-| `--limit N` | LIMIT | |
-| `--columns A,B,C` | SELECT only these columns | Comma-separated column names. |
+| `--any` | OR-compose conditions across flags | Default is AND (no flag needed). |
+| `--order COL` | `ORDER BY` | `multiple=True`. Prefix with `-` for DESC. |
+| `--limit N` | `LIMIT` | |
+| `--columns A,B,C` | `SELECT` only these columns | Overrides `default_columns`. |
 | `--format F` | Output format: `table`, `json`, `csv` | Auto-detects: `table` for TTY, `json` for pipe. |
-| `--search TEXT` | Full-text search | Only present if table has FTS index. ANDed with column filters. `--order` overrides FTS ranking. |
+| `--search TEXT` | Full-text search | Only present on tables with FTS. ANDed with column filters. |
 
-**Reserved names**: `all`, `any`, `order`, `limit`, `columns`, `format`, `search`, `help`. A table column with a reserved name is reachable only via `sql`.
+**Reserved names:** `any`, `order`, `limit`, `columns`, `format`, `search`, `help`. Columns with these names fall through to `sql`-only access.
 
-## Auto-Generated Commands
+## Reserved Commands
 
-### Command Structure
+Two built-in commands take precedence over table subcommands:
 
-Top-level commands:
+- `sql`: raw SQL
+- `schema`: structure inspection
 
-```
-myapp query <TABLE> [flags]    # Query a table with column flags
-myapp sql QUERY                # Execute raw SQL (read-only)
-myapp schema [TABLE]           # Inspect database structure
-```
+If a table or view is named `sql` or `schema`, it is **skipped at CLI build time** with a `warnings.warn()` message. It remains visible in `schema` output and reachable via `sql "SELECT * FROM <name>"`. Built-in commands always win, even if the caller passes `tables=["sql", ...]` explicitly.
 
-Under `query`, one subcommand per table and per view. Views are treated identically to tables.
+## Command Structure
 
 ```
-myapp query repos [--col op:val ...] [--order COL] [--limit N] [--format F]
-myapp query events [--col op:val ...] [--order COL] [--limit N] [--format F]
-myapp query active_repos [...]   # from CREATE VIEW active_repos AS ...
+sqlflag <db>
+├── <table>          (one per queryable table and view, except reserved names)
+├── <view>           (views are treated identically to tables)
+├── sql              (raw SQL)
+└── schema           (structure inspection)
 ```
 
-The `query` subcommand name is configurable when mounting into an existing CLI. Default is `query`.
+### Views
 
-### Table Allowlist
+Views appear as subcommands alongside tables with no UX distinction. The `schema` overview marks them with a `(view)` suffix for discoverability.
 
-By default, all tables and views are exposed as subcommands. Pass `tables` to restrict to an explicit set:
+### Table allowlist
+
+By default, all tables and views are exposed. Pass `tables` to the `SqlFlag` constructor to restrict:
 
 ```python
 SqlFlag("mydb.sqlite", tables=["repos", "events"])
 ```
 
-Unlisted tables are still reachable via `sql` and visible in `schema`. They just don't get auto-generated query subcommands.
+Unlisted tables remain reachable via `sql` and visible in `schema`. They simply don't get auto-generated subcommands.
 
-### Schema Command
+## Default Columns
 
-The `schema` command makes the database structure and available operators discoverable.
+Wide tables produce unusable default output. A table with 50+ columns rendered as a Rich table in a terminal is visual noise, and `SELECT *` over wide rows in JSON is unwieldy to read. `default_columns` solves this:
 
-**List tables:**
+```python
+SqlFlag(
+    "mydb.sqlite",
+    default_columns={
+        "repos": ["name", "language", "stars", "description"],
+    },
+)
+```
+
+Semantics:
+
+- If the user passes `--columns A,B,C`, those win.
+- Otherwise, if the table has a `default_columns` entry, those are used.
+- Otherwise, all columns are returned (`SELECT *`).
+
+The standalone `sqlflag` CLI does not currently accept `default_columns` on the command line; it is a Python-API feature for consumers that embed `SqlFlag` or wrap it for a specific database. A future enhancement could read it from a sidecar config file (e.g., `mydb.db.sqlflag.toml`), but that is out of scope for v1.
+
+**Rationale:** We discovered this problem when attempting to auto-generate a CLI over repoindex's `repos` table (55 columns). Without per-table default columns, the output was unreadable regardless of format. The feature is first-class because the problem is inherent to real-world schemas, not a corner case.
+
+## Schema Command
+
+Makes the database structure and available operators discoverable.
+
+**Overview:**
 
 ```
-$ myapp schema
-Table           Rows    Columns
-repos           142     8
-events          1203    5
-active_repos    87      8 (view)
+$ sqlflag mydb.db schema
+Table                   Rows    Columns
+repos                   142     8
+events                  1203    5
+active_repos (view)     87      8
 ```
 
-**Describe a table:**
+**Table detail:**
 
 ```
-$ myapp schema repos
+$ sqlflag mydb.db schema repos
 Table: repos (142 rows)
 
 Column          Type        Operators
@@ -217,85 +250,54 @@ stars           INTEGER     not, gt, lt
 is_archived     BOOLEAN     not
 created_at      DATETIME    not, since, before
 description     TEXT        not, contains
-homepage_url    TEXT        not, contains
-github_id       INTEGER     not, gt, lt
 
 All columns support equality (bare value) and IN (repeated flag).
 Reserved (use sql): none
 FTS index: no
 ```
 
-The operator listing is derived from the type mapping:
+### Type → operator mapping (documentation only, not enforcement)
 
-| Type Category | Available Operators |
-|--------------|-------------------|
+| Type category | Operators shown |
+|---------------|-----------------|
 | TEXT | `not:`, `contains:` |
 | INTEGER, REAL | `not:`, `gt:`, `lt:` |
 | BOOLEAN | `not:` |
-| DATETIME | `not:`, `since:`, `before:` |
+| DATETIME, TIMESTAMP | `not:`, `since:`, `before:` |
+| Other / unrecognized | TEXT (safe fallback, includes typeless view columns) |
 
-All types support bare equality and IN. The schema command documents this per-column so users never need to guess.
-
-The schema command does **not** enforce these type-operator associations. Using `--stars contains:test` is allowed; SQLite handles the type coercion. The schema command describes what is *useful*, not what is *permitted*.
+All types additionally support bare equality and IN via repeated flags. Using an operator outside its documented set is allowed (e.g., `--stars contains:test`); SQLite handles the coercion. The schema command describes what is *useful*, not what is *permitted*.
 
 ## Output Formatting
 
-- **table**: Rich pretty table. Default when stdout is a TTY.
-- **json**: Newline-delimited JSON objects. Default when stdout is piped (structured, preserves types).
+- **table**: Rich pretty table. Default when `stdout.isatty()`.
+- **json**: Newline-delimited JSON objects. Default when stdout is piped. Preserves types.
 - **csv**: CSV with header row.
 
-Auto-detection: if `sys.stdout.isatty()` then `table`, else `json`. `--format` overrides.
+`--format` overrides auto-detection.
 
 ## Library API
 
-### Standalone App
+### Standalone embedding
 
 ```python
 from sqlflag import SqlFlag
 
 app = SqlFlag("path/to/db.sqlite")
-app.run()
-# myapp query repos --language python
-# myapp sql "SELECT ..."
-# myapp schema repos
+app.click_app(["repos", "--language", "python"])
 ```
 
-### Standalone with Table Allowlist
+### With table allowlist and default columns
 
 ```python
-from sqlflag import SqlFlag
-
-app = SqlFlag("path/to/db.sqlite", tables=["repos", "events"])
-app.run()
-# Only repos and events appear under query
-# All tables still reachable via sql and schema
+SqlFlag(
+    "mydb.sqlite",
+    tables=["repos", "events"],
+    default_columns={"repos": ["name", "language", "stars"]},
+)
 ```
 
-### Mount in Existing Typer App
-
-```python
-import typer
-from sqlflag import SqlFlag
-
-main = typer.Typer()
-
-@main.command()
-def my_custom_command():
-    ...
-
-# Mount with default query group name
-SqlFlag("mydb.sqlite", tables=["repos", "events"]).mount(main)
-# myapp query repos --language python
-# myapp sql "SELECT ..."
-
-# Or with a custom name for the query group
-SqlFlag("mydb.sqlite").mount(main, query_name="db")
-# myapp db repos --language python
-```
-
-`mount()` adds three commands to the parent app: the query group (configurable name), `sql`, and `schema`. If the parent app already has conflicting command names, the caller resolves the conflict.
-
-### Programmatic Query Engine
+### Programmatic query engine
 
 ```python
 from sqlflag import QueryEngine
@@ -309,67 +311,45 @@ rows = engine.query(
     limit=10,
     columns=["name", "language", "stars"],
 )
-for row in rows:
-    print(row)
 ```
 
-### Read-Only Enforcement
-
-All database access is read-only. sqlite-utils connection opened with `mode=ro` URI parameter.
+`QueryEngine` is a clean public API for callers that want filter compilation without the Click layer (e.g., MCP tool handlers, web services, test fixtures).
 
 ## Clash Handling
 
-If a column name matches a reserved flag name:
+| Clash | Outcome |
+|-------|---------|
+| Column name matches reserved flag (`any`, `order`, `limit`, `columns`, `format`, `search`, `help`) | Column omitted from flags; reachable via `sql`; noted in `schema` output. |
+| Column name has invalid CLI characters (spaces, leading digits, etc.) | Column skipped for flag generation; reachable via `sql`. |
+| Table name matches reserved command (`sql`, `schema`) | Subcommand skipped with `warnings.warn()`; table visible in `schema`; reachable via `sql "SELECT * FROM <name>"`. |
+| Column name is SQLite reserved word | Bracket-quoted (`[col]`) throughout generated SQL. |
 
-- The column is **not** exposed as a flag
-- It remains accessible via `sql`
-- No error, no warning. Silent omission. The `schema` command lists any reserved clashes.
+Column names with underscores become hyphenated flags: `created_at` → `--created-at`. The library maps back to column names internally.
 
-If a column name is not a valid CLI flag (contains spaces, starts with a number, etc.):
+## Read-Only Enforcement
 
-- The column is skipped for flag generation
-- Accessible via `sql`
+All database access opens the connection with `file:<path>?mode=ro` via URI. Even the `sql` escape hatch cannot write. This is a library-level invariant, not a user-facing option.
 
-Column names with underscores become hyphenated flags: `created_at` becomes `--created-at`. The library maps back to column names internally.
+## Scope
 
-## Type Mapping
-
-Column types from SQLite schema determine which operators the schema command displays:
-
-| SQLite Type | Category | Notes |
-|------------|----------|-------|
-| TEXT | TEXT | |
-| INTEGER | INTEGER | |
-| REAL | REAL | Treated same as INTEGER for operator purposes |
-| BOOLEAN | BOOLEAN | |
-| DATETIME, TIMESTAMP | DATETIME | |
-| Other / unrecognized | TEXT | Safe fallback. Includes typeless view columns. |
-
-All flags are `str` at the Typer level (because values may include operator prefixes). Type coercion for SQL parameters is handled by the value parser based on column type.
-
-## Scope Boundaries
-
-**In scope:**
-
-- Auto-generated CLI from SQLite schema
-- Table allowlist (`tables` parameter)
-- Column flags with operator prefix syntax (7 operators)
-- AND/OR conjunction mode (`--all`/`--any`)
-- Reserved flags: `--order`, `--limit`, `--columns`, `--format`, `--search`
+**In scope**
+- Auto-generated CLI from SQLite schema (tables + views)
+- Column flags with a closed 7-operator prefix syntax
+- AND/OR conjunction across flags
+- Reserved flags: `--any`, `--order`, `--limit`, `--columns`, `--format`, `--search`
+- Reserved command collision handling (`sql`, `schema`)
+- `default_columns` for wide-schema UX
 - Schema inspection with per-column operator documentation
-- Raw SQL escape hatch
-- Output formatting (table, json, csv) with TTY auto-detection
-- Read-only database access
-- Library API for standalone, mounting, and programmatic use
+- Raw SQL escape hatch (read-only)
+- Output formats: table / json / csv with TTY auto-detect
+- Standalone `sqlflag` command via `[project.scripts]` entry point
+- `SqlFlag` and `QueryEngine` public Python APIs
 
-**Out of scope:**
-
-- Custom DSL / expression language
-- `--where` flag
-- Nested boolean logic at the flag level (use `sql`)
-- Write operations
+**Out of scope**
+- Mounting into host CLI frameworks (removed; see [What sqlflag is not](#what-sqlflag-is-not))
+- `--where` DSL or nested boolean flag expressions
+- Write operations of any kind
 - Schema migration or management
-- MCP tool generation (future extension)
-- Metadata overlays (display columns, default sort, aliases; may revisit)
-- Plugin system
-- Type enforcement (operators are documented per type but not restricted)
+- Per-database config files for `default_columns` (possible future enhancement)
+- MCP tool generation (possible future extension)
+- Type enforcement (operators are documented per type, not restricted)
