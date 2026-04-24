@@ -87,3 +87,21 @@ def collision_db(tmp_path):
     db.execute("CREATE TABLE repos (name TEXT, stars INTEGER)")
     db["repos"].insert_all([{"name": "alpha", "stars": 100}])
     return db_path
+
+
+@pytest.fixture
+def db_with_literal_null_value(tmp_path):
+    """Database where a TEXT column contains the literal string 'null' as a value.
+
+    Used to verify that Tier 3 value completion doesn't emit `null` twice (once
+    from the always-on reserved literal, once from the distinct-values query).
+    """
+    db_path = str(tmp_path / "literal_null.db")
+    db = Database(db_path)
+    db.execute("CREATE TABLE items (name TEXT, tag TEXT)")
+    db["items"].insert_all([
+        {"name": "a", "tag": "null"},   # literal string "null"
+        {"name": "b", "tag": "real"},
+        {"name": "c", "tag": "null"},   # duplicate to make DISTINCT meaningful
+    ])
+    return db_path

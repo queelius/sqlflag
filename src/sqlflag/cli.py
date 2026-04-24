@@ -26,20 +26,18 @@ class ColumnListType(click.ParamType):
     def __init__(self, columns: list[str]):
         self._columns = columns
 
-    def convert(self, value, param, ctx):
-        return value  # no runtime conversion; handled downstream
-
     def shell_complete(self, ctx, param, incomplete):
-        parts = incomplete.split(",")
-        already = {p.strip() for p in parts[:-1] if p.strip()}
-        prefix = ",".join(parts[:-1])
-        if prefix:
-            prefix += ","
-        current = parts[-1]
+        *prior, current = incomplete.split(",")
+        already = {p.strip() for p in prior if p.strip()}
+        prefix = ",".join(prior) + "," if prior else ""
+        # Allow whitespace after comma (`name, la<TAB>`): strip for matching,
+        # preserve in the returned completion so the user's formatting sticks.
+        stem = current.lstrip()
+        leading_ws = current[: len(current) - len(stem)]
         return [
-            CompletionItem(prefix + col)
+            CompletionItem(prefix + leading_ws + col)
             for col in self._columns
-            if col not in already and col.startswith(current)
+            if col not in already and col.startswith(stem)
         ]
 
 
@@ -59,21 +57,14 @@ class OrderType(click.ParamType):
     def __init__(self, columns: list[str]):
         self._columns = columns
 
-    def convert(self, value, param, ctx):
-        return value
-
     def shell_complete(self, ctx, param, incomplete):
-        if incomplete.startswith("-"):
-            stem = incomplete[1:]
-            return [
-                CompletionItem(f"-{col}")
-                for col in self._columns
-                if col.startswith(stem)
-            ]
+        desc = incomplete.startswith("-")
+        stem = incomplete[1:] if desc else incomplete
+        sign = "-" if desc else ""
         return [
-            CompletionItem(col)
+            CompletionItem(f"{sign}{col}")
             for col in self._columns
-            if col.startswith(incomplete)
+            if col.startswith(stem)
         ]
 
 
@@ -105,24 +96,16 @@ class FilterValueType(click.ParamType):
         self._column = column_name
         self._engine = engine
 
-    def convert(self, value, param, ctx):
-        return value  # parsing happens in the query engine
-
     def shell_complete(self, ctx, param, incomplete):
-        items = []
-        # Tier 2: operator prefixes
-        for op in self._operators:
-            prefix = f"{op}:"
-            if prefix.startswith(incomplete):
-                items.append(CompletionItem(prefix))
-        if "null".startswith(incomplete):
-            items.append(CompletionItem("null"))
-        # Tier 3: data-aware value completion
+        candidates = [f"{op}:" for op in self._operators] + ["null"]
         if self._should_complete_values(incomplete):
-            for value in self._safe_distinct_values():
-                if value.startswith(incomplete):
-                    items.append(CompletionItem(value))
-        return items
+            candidates.extend(self._safe_distinct_values())
+        # Preserve order, drop duplicates: a data value of "null" would otherwise
+        # appear twice (once as the reserved literal, once from distinct values).
+        return [
+            CompletionItem(c) for c in dict.fromkeys(candidates)
+            if c.startswith(incomplete)
+        ]
 
     def _should_complete_values(self, incomplete: str) -> bool:
         if not os.environ.get("SQLFLAG_COMPLETE_VALUES"):
@@ -130,12 +113,11 @@ class FilterValueType(click.ParamType):
         if self._engine is None or self._table is None or self._column is None:
             return False
         # Suppress value completion once user has committed to an operator prefix
-        for op in self._operators:
-            if incomplete.startswith(f"{op}:"):
-                return False
-        return True
+        return not any(incomplete.startswith(f"{op}:") for op in self._operators)
 
     def _safe_distinct_values(self) -> list[str]:
+        # Broad except is deliberate: shell completion must never raise, since
+        # a broken completion is strictly better than a crashed shell.
         try:
             max_card = int(os.environ.get(
                 "SQLFLAG_VALUE_COMPLETE_MAX", VALUE_COMPLETE_DEFAULT_MAX
@@ -269,33 +251,30 @@ class SqlFlag:
             )
 
         def callback(**kwargs):
-            fmt = kwargs.get("format") or detect_format()
-            use_any = kwargs.get("any", False)
-            order_specs = kwargs.get("order") or []
-            limit = kwargs.get("limit")
             columns_str = kwargs.get("columns")
-            search_query = kwargs.get("search")
             columns_list = (
                 [c.strip() for c in columns_str.split(",")]
                 if columns_str
                 else table_default_columns
             )
+            order_specs = list(kwargs.get("order") or ()) or None
 
-            filters = {}
-            for param_name, col_name in col_map.items():
-                values = kwargs.get(param_name, ())
-                if values:
-                    filters[col_name] = list(values)
+            filters = {
+                col_name: list(kwargs[param_name])
+                for param_name, col_name in col_map.items()
+                if kwargs.get(param_name)
+            }
 
             rows = engine.query(
-                table_name, filters=filters,
-                conjunction="any" if use_any else "all",
-                order=list(order_specs) if order_specs else None,
-                limit=limit, columns=columns_list,
-                search=search_query,
+                table_name,
+                filters=filters,
+                conjunction="any" if kwargs.get("any") else "all",
+                order=order_specs,
+                limit=kwargs.get("limit"),
+                columns=columns_list,
+                search=kwargs.get("search"),
             )
-
-            format_rows(rows, fmt=fmt)
+            format_rows(rows, fmt=kwargs.get("format") or detect_format())
 
         return click.Command(
             name=table_name,

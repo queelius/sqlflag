@@ -80,6 +80,22 @@ class TestOrderAndLimit:
         rows = list(engine.query("repos", order=["-stars"]))
         assert rows[0]["stars"] >= rows[-1]["stars"]
 
+    def test_order_spec_preserves_input_verbatim(self, sample_db):
+        """Order specs must not silently rewrite hyphens to underscores.
+        A user passing `created-at` should get `[created-at]` in SQL (which
+        SQLite will then error on if the column doesn't exist), not have it
+        transformed to `created_at`. Consistent with how --columns behaves."""
+        engine = QueryEngine(sample_db)
+        # sample_db has `created_at` (underscore); asking for `created-at`
+        # should error out cleanly rather than succeed as if it were `created_at`.
+        import sqlite3
+        try:
+            list(engine.query("repos", order=["created-at"]))
+            ok = False  # if no exception raised, behavior is the old (wrong) one
+        except sqlite3.OperationalError:
+            ok = True
+        assert ok, "order=['created-at'] silently succeeded; hyphen-to-underscore rewrite still active"
+
     def test_limit(self, sample_db):
         engine = QueryEngine(sample_db)
         rows = list(engine.query("repos", limit=2))

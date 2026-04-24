@@ -53,11 +53,10 @@ class QueryEngine:
     def distinct_values_bounded(
         self, table: str, column: str, max_card: int
     ) -> list[str] | None:
-        """Return distinct non-NULL string values for a column, or None if cardinality exceeds max_card.
+        """Distinct non-NULL values for `column`, or None if cardinality > max_card.
 
-        Fetches max_card + 1 values in a single query; if we got that many, we
-        know cardinality exceeds the limit and return None. This is used by
-        shell completion to gate per-column value enumeration.
+        Fetches max_card + 1 rows; an overflow signals the column is too wide
+        to enumerate. Used by shell completion to gate per-column values.
         """
         sql = (
             f"SELECT DISTINCT [{column}] FROM [{table}] "
@@ -124,9 +123,7 @@ class QueryEngine:
         parts = []
         for spec in order:
             if spec.startswith("-"):
-                col = spec[1:].replace("-", "_")
-                parts.append(f"[{col}] DESC")
+                parts.append(f"[{spec[1:]}] DESC")
             else:
-                col = spec.replace("-", "_")
-                parts.append(f"[{col}]")
+                parts.append(f"[{spec}]")
         return ", ".join(parts)

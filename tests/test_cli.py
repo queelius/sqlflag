@@ -394,6 +394,15 @@ class TestCompletionTier1:
         assert "name,language,name" not in items
         assert "name,language,language" not in items
 
+    def test_columns_completion_with_whitespace_after_comma(self, sample_db):
+        """User-friendly: `name, la<TAB>` should complete language even with a
+        space after the comma. The leading whitespace is stripped for matching."""
+        from sqlflag.cli import SqlFlag
+        app = SqlFlag(sample_db)
+        ctx, param = self._param(app, "repos", "columns")
+        items = [c.value for c in param.type.shell_complete(ctx, param, "name, la")]
+        assert any("language" in i for i in items), f"expected a candidate containing language, got {items}"
+
     def test_order_completion_empty_offers_asc(self, sample_db):
         from sqlflag.cli import SqlFlag
         app = SqlFlag(sample_db)
@@ -721,6 +730,18 @@ class TestCompletionTier3:
         items = [c.value for c in param.type.shell_complete(ctx, param, "nu")]
         assert "null" in items
 
+    def test_null_not_duplicated_when_value_is_literal_null(
+        self, db_with_literal_null_value, monkeypatch
+    ):
+        """If a column contains the literal string 'null', completion must not
+        emit it twice (once as reserved literal, once as distinct value)."""
+        monkeypatch.setenv("SQLFLAG_COMPLETE_VALUES", "1")
+        from sqlflag.cli import SqlFlag
+        app = SqlFlag(db_with_literal_null_value)
+        ctx, param = self._param(app, "items", "tag")
+        items = [c.value for c in param.type.shell_complete(ctx, param, "")]
+        assert items.count("null") == 1, f"null appeared {items.count('null')} times in {items}"
+
 
 class TestCompletionIntegrationTier3:
     """End-to-end Tier 3 via BashComplete with env var."""
@@ -747,6 +768,23 @@ class TestCompletionIntegrationTier3:
         )]
         assert "python" not in items
         assert "contains:" in items
+
+
+class TestCompletionResilience:
+    """Completion must never raise, even if the db is corrupt or unreadable."""
+
+    def test_corrupt_db_completion_does_not_raise(self, tmp_path):
+        """Opening a non-SQLite file during completion must return no candidates,
+        not propagate a DatabaseError up to the shell."""
+        fake_db = tmp_path / "not-a-real.db"
+        fake_db.write_text("this is not a SQLite file")
+        from click.shell_completion import BashComplete
+        from sqlflag.__main__ import main
+        comp = BashComplete(main, {}, "sqlflag", "_SQLFLAG_COMPLETE")
+        # The shell would call get_completions on this and expect zero candidates
+        # rather than a Python traceback. Must not raise.
+        items = comp.get_completions(args=[str(fake_db)], incomplete="")
+        assert items == [] or all(hasattr(c, "value") for c in items)
 
 
 class TestInstallCompletion:

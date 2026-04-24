@@ -12,45 +12,42 @@ from click.shell_completion import BashComplete, FishComplete, ZshComplete
 from sqlflag.cli import SqlFlag
 
 
-_SHELL_COMPLETE_CLASSES = {
+SHELL_COMPLETE_CLASSES = {
     "bash": BashComplete,
     "zsh": ZshComplete,
     "fish": FishComplete,
 }
 
 
-def _emit_completion_source(shell: str) -> None:
-    """Print the shell-completion source script for the given shell."""
-    cls = _SHELL_COMPLETE_CLASSES[shell]
-    instance = cls(main, {}, "sqlflag", "_SQLFLAG_COMPLETE")
-    click.echo(instance.source())
-
-
 class SqlFlagGroup(click.Group):
     """Click group whose subcommands are derived from a SQLite database at runtime."""
 
     def _sqlflag(self, ctx: click.Context) -> SqlFlag | None:
-        cached = ctx.meta.get("sqlflag.instance")
-        if cached is not None:
-            return cached
+        # Cache per-invocation in ctx.meta (not on self) to avoid stale state
+        # across CliRunner invocations in tests.
+        sf = ctx.meta.get("sqlflag.instance")
+        if sf is not None:
+            return sf
         db_path = ctx.params.get("db_path")
         if not db_path:
             return None
-        sf = SqlFlag(db_path)
+        # Broad except matches the spec guarantee: completion never raises.
+        # A corrupt, locked, or unreadable db degrades to "no candidates"
+        # rather than propagating a traceback up to the shell.
+        try:
+            sf = SqlFlag(db_path)
+        except Exception:
+            return None
         ctx.meta["sqlflag.instance"] = sf
         return sf
 
     def list_commands(self, ctx: click.Context) -> list[str]:
         sf = self._sqlflag(ctx)
-        if sf is None:
-            return []
-        return sorted(sf.click_app.commands)
+        return sorted(sf.click_app.commands) if sf else []
 
     def get_command(self, ctx: click.Context, name: str) -> click.Command | None:
         sf = self._sqlflag(ctx)
-        if sf is None:
-            return None
-        return sf.click_app.commands.get(name)
+        return sf.click_app.commands.get(name) if sf else None
 
 
 @click.group(
@@ -65,7 +62,7 @@ class SqlFlagGroup(click.Group):
 )
 @click.option(
     "--install-completion",
-    type=click.Choice(list(_SHELL_COMPLETE_CLASSES)),
+    type=click.Choice(list(SHELL_COMPLETE_CLASSES)),
     default=None,
     help="Print shell-completion source for the given shell, then exit. "
          'Install with: eval "$(sqlflag --install-completion bash)"',
@@ -85,7 +82,8 @@ def main(
     Use `sqlflag <db_path> sql "..."` for raw SQL.
     """
     if install_completion is not None:
-        _emit_completion_source(install_completion)
+        cls = SHELL_COMPLETE_CLASSES[install_completion]
+        click.echo(cls(main, {}, "sqlflag", "_SQLFLAG_COMPLETE").source())
         ctx.exit(0)
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
