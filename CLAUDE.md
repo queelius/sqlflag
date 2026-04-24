@@ -21,6 +21,33 @@ pytest tests/test_parser.py::TestOperators::test_gt -v
 pytest tests/ --cov=sqlflag --cov-report=term-missing
 ```
 
+## Publishing
+
+sqlflag is on PyPI (https://pypi.org/project/sqlflag/). Releases are
+manual `twine upload` for now (no CI). Workflow:
+
+```bash
+# 1. Bump version in pyproject.toml
+# 2. Commit: "chore: release vX.Y.Z"
+# 3. Build fresh
+rm -rf dist/* && python -m build
+twine check dist/*
+
+# 4. Tag and push
+git tag -a vX.Y.Z -m "vX.Y.Z: <one-line summary>"
+git push origin main && git push origin vX.Y.Z
+
+# 5. Upload (credentials in ~/.pypirc)
+twine upload dist/*
+
+# 6. GitHub release
+gh release create vX.Y.Z --title "..." --notes "..."
+```
+
+The PyPI JSON API (`https://pypi.org/pypi/sqlflag/json`) is authoritative
+for version state; `pip index versions sqlflag` caches locally and can lie
+for a few minutes after upload.
+
 ## Architecture
 
 sqlflag is a **standalone CLI** for ad-hoc querying of SQLite databases. The schema drives everything: tables become subcommands, columns become filter flags, column types determine available operators.
@@ -58,6 +85,14 @@ __main__.main()  --  Click lazy group (SqlFlagGroup) with db_path as @click.argu
 - **`--any` flag** switches cross-flag conjunction from AND (default) to OR. Conditions within a single flag (e.g., `--stars gt:5 --stars lt:100`) always AND together regardless.
 
 - **Shell completion is schema- and data-aware.** Three custom `ParamType` subclasses in `cli.py`: `ColumnListType` (comma-aware `--columns` completion), `OrderType` (column names for `--order`), and `FilterValueType` (operator-prefix completion plus opt-in distinct-value completion per column). Tier 3 value completion is gated by `SQLFLAG_COMPLETE_VALUES=1` and a cardinality ceiling (`SQLFLAG_VALUE_COMPLETE_MAX`, default 100) to keep TAB latency bounded. All data access in completion is wrapped in try/except: completion must never raise, since a broken completion is strictly better than a crashed shell.
+
+## Operational notes
+
+- **Rich markup in cell values.** `rich.table.Table.add_row(str)` parses strings as Rich markup by default. User data can contain bracket tokens (`[INST]`, `[/INST]`, `[bold]`) that crash the renderer. `src/sqlflag/formats/table.py` wraps every cell value and column header in `rich.text.Text` to bypass markup parsing. When adding other rich-based renderers, preserve this pattern.
+
+- **Em-dash hook.** The author's `soul` plugin enforces a writing-style hook that rejects the em-dash character (Unicode U+2014) in any markdown or text file touched by an Edit or Write. Use commas, colons, semicolons, or parentheses instead. This applies to spec edits, README, CLAUDE.md, and commit messages.
+
+- **Wide-schema smoke tests.** `tests/conftest.py`'s `sample_db` has 6-column tables; it won't exercise wide-schema UX issues (unreadable default output, completion list size, etc.). When changing anything that interacts with table width, also smoke-test against a real wide database like `~/.repoindex/index.db` (55-column `repos` table) using the `BashComplete.get_completions(...)` harness for completion work.
 
 ## Spec
 
