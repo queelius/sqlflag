@@ -1,6 +1,6 @@
 [project]
 name = "sqlflag"
-version = "0.6.0"
+version = "0.6.1"
 description = "Auto-generate CLIs from SQLite databases. Tables become subcommands, columns become filter flags."
 readme = "README.md"
 requires-python = ">=3.10"
